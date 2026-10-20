@@ -8,16 +8,23 @@ export class PhotoIndexRepo {
   }
 
   async get(basePath: string): Promise<{ photoId: string } | null> {
-    const doc = await this.docRef(basePath).get();
+    const id = toDocId(basePath);
+    if (id === null) return null;
+    const doc = await this.db.collection('wpImages').doc(id).get();
     const photoId = doc.data()?.photoId;
     return typeof photoId === 'string' ? { photoId } : null;
   }
 
   async put(basePath: string, photoId: string): Promise<void> {
-    await this.docRef(basePath).set({ photoId });
+    const id = toDocId(basePath);
+    if (id === null) throw new Error(`Invalid image path: ${basePath}`);
+    await this.db.collection('wpImages').doc(id).set({ photoId });
   }
+}
 
-  private docRef(basePath: string) {
-    return this.db.collection('wpImages').doc(basePath.replaceAll('/', '__'));
-  }
+/** Returns null for ids Firestore rejects, so lookups of junk paths simply miss. */
+function toDocId(basePath: string): string | null {
+  const id = basePath.replaceAll('/', '__');
+  if (id === '.' || id === '..' || /^__.*__$/.test(id)) return null;
+  return Buffer.byteLength(id) > 1500 ? null : id;
 }

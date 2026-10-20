@@ -184,6 +184,23 @@ describe('public routes', () => {
     });
   });
 
+  it.each(['/v1/posts/by-slug/%E0%A4%A', '/v1/legacy-images/%E0%A4%A'])(
+    'returns 400 for malformed escapes in %s',
+    async (url) => {
+      const res = await request(app).get(url);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('bad_request');
+    },
+  );
+
+  it.each([
+    '/v1/legacy-images/%2E%2E',
+    '/v1/legacy-images/__x__',
+    `/v1/legacy-images/${'a'.repeat(1600)}`,
+  ])('returns 404 for image paths Firestore cannot store: %s', async (url) => {
+    expect((await request(app).get(url)).status).toBe(404);
+  });
+
   it('returns a JSON 404 for unmatched routes', async () => {
     const res = await request(app).get('/v1/nope');
     expect(res.status).toBe(404);
