@@ -15,7 +15,16 @@ Blog (Vue SSR web app + Express API) replacing the old WordPress site. pnpm mono
 
 ## Getting started
 
-Create a file named `.env` (gitignored) in the repo root with these variables:
+Do these in order.
+
+**1. Install dependencies** (after the prerequisites above):
+
+```sh
+pnpm install
+```
+
+**2. Create `.env`.** Make a file named `.env` (gitignored) in the repo root with exactly this
+content. `pnpm dev` will not start without it; `pnpm test` and `pnpm e2e` do not need it.
 
 ```
 GCLOUD_PROJECT=vinyl-rehab-local
@@ -33,7 +42,24 @@ VITE_FIREBASE_API_KEY=fake-api-key
 VITE_FIREBASE_AUTH_EMULATOR_URL=http://localhost:9099
 ```
 
-All variables:
+**3. Start the storage emulator and the dev stack:**
+
+```sh
+docker compose up -d
+pnpm dev     # Firebase emulators (UI on :4000), web and api
+```
+
+**4. Open** http://localhost:3000/ (public site) and http://localhost:3000/admin/ (admin).
+
+### Logging in to the admin
+
+Open http://localhost:3000/admin/ and click "Sign in with Google". Locally the Auth emulator opens
+a popup: choose "Add new account", enter an email listed in `ADMIN_EMAILS` (any display name) and
+click "Sign in with Google.com". The emulator remembers the account (it is kept in
+`.emulator-data/`), so later sign-ins just pick it from the list. Any other account sees "This
+Google account is not allowed".
+
+### Environment variables
 
 | Variable                      | Used by            | Meaning                                                                                                            |
 | ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
@@ -58,21 +84,6 @@ starts (dev) or is built (production):
 - `VITE_FIREBASE_AUTH_EMULATOR_URL` - when set, sign-in goes to the Auth emulator at this URL
 - `VITE_FIREBASE_PROJECT_ID` - optional, defaults to `vinyl-rehab-local`
 - `VITE_FIREBASE_AUTH_DOMAIN` - optional, defaults to `<project id>.firebaseapp.com`
-
-## Admin
-
-Open http://localhost:3000/admin/ and click "Sign in with Google". Locally the Auth emulator opens
-a popup: choose "Add new account", enter an email listed in `ADMIN_EMAILS` (any display name) and
-click "Sign in with Google.com". The emulator remembers the account (it is kept in
-`.emulator-data/`), so later sign-ins just pick it from the list. Any other account sees "This
-Google account is not allowed".
-
-Then:
-
-```sh
-pnpm install
-pnpm dev     # starts fake-gcs, Firebase emulators (UI on :4000), web and api
-```
 
 ## Tests and checks
 
