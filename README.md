@@ -27,10 +27,28 @@ IMAGE_BASE_URL=http://localhost:4443/vinyl-rehab-photos
 ADMIN_EMAILS=marko.pytsep@iglu.ee
 API_PORT=3001
 WEB_PORT=3000
+SITE_URL=http://localhost:3000
 API_URL=http://localhost:3001
 VITE_FIREBASE_API_KEY=fake-api-key
 VITE_FIREBASE_AUTH_EMULATOR_URL=http://localhost:9099
 ```
+
+All variables:
+
+| Variable                      | Used by            | Meaning                                                                                                            |
+| ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `GCLOUD_PROJECT`              | api, importer      | Firebase project id (`vinyl-rehab-local` locally)                                                                  |
+| `FIRESTORE_EMULATOR_HOST`     | api, importer      | Firestore emulator `host:port`; unset in production                                                                |
+| `FIREBASE_AUTH_EMULATOR_HOST` | api                | Auth emulator `host:port`; unset in production                                                                     |
+| `STORAGE_EMULATOR_HOST`       | api, importer      | fake-gcs URL; unset in production (real Cloud Storage)                                                             |
+| `BUCKET`                      | api, importer      | Photo bucket name                                                                                                  |
+| `IMAGE_BASE_URL`              | api, web, importer | Public base URL of the bucket, used to build photo URLs                                                            |
+| `ADMIN_EMAILS`                | api                | Comma-separated emails allowed into the admin; everyone else gets 403                                              |
+| `API_PORT`                    | api                | Listen port, default 3001                                                                                          |
+| `API_URL`                     | web                | Where the web server reaches the api                                                                               |
+| `WEB_PORT`                    | web                | Listen port, default 3000                                                                                          |
+| `SITE_URL`                    | web                | Public site URL (feed, sitemap, canonical links), default `http://localhost:3000`; set it together with `WEB_PORT` |
+| `WP_BASE_URL`                 | importer           | Optional, defaults to `https://vinyl.rehab`                                                                        |
 
 The `VITE_FIREBASE_*` variables configure Firebase Auth in the admin UI (`/admin/`). Vite builds
 them into the browser bundle from the process environment, so they must be set when the web app
@@ -43,8 +61,10 @@ starts (dev) or is built (production):
 
 ## Admin
 
-Open http://localhost:3000/admin/ and sign in with Google. Locally the Auth emulator opens a popup
-where you add an account; use an email listed in `ADMIN_EMAILS`. Any other account sees "This
+Open http://localhost:3000/admin/ and click "Sign in with Google". Locally the Auth emulator opens
+a popup: choose "Add new account", enter an email listed in `ADMIN_EMAILS` (any display name) and
+click "Sign in with Google.com". The emulator remembers the account (it is kept in
+`.emulator-data/`), so later sign-ins just pick it from the list. Any other account sees "This
 Google account is not allowed".
 
 Then:
@@ -60,7 +80,16 @@ pnpm dev     # starts fake-gcs, Firebase emulators (UI on :4000), web and api
 docker compose up -d   # storage emulator, required by tests
 pnpm test              # needs no .env; runs all tests inside the Firestore + Auth emulators
 pnpm check             # lint, format and type-check (vp check)
+pnpm e2e               # Playwright end-to-end test of the admin flow
 ```
+
+`pnpm e2e` needs `docker compose up -d` (fake-gcs on :4443) and Google Chrome installed. It starts
+its own Firestore and Auth emulators (ports 8180 and 9199, nothing imported or exported), its own
+api (3191) and web (3190) with project `vinyl-rehab-e2e` and bucket `vinyl-rehab-e2e-photos`, all
+configured in `playwright.config.ts` and `e2e/settings.ts` (no `.env` file). It seeds the `vinyl`
+category, signs in through the Auth emulator popup, publishes a post with three photos, checks the
+public pages, then deletes the post. Your `pnpm dev` data is not touched and the dev stack can
+keep running meanwhile.
 
 ## Importing the WordPress site
 

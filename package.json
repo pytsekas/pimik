@@ -6,9 +6,11 @@
     "dev": "docker compose up -d && concurrently -k -n emu,apps \"firebase emulators:start --project vinyl-rehab-local $([ -f .emulator-data/firebase-export-metadata.json ] && echo --import .emulator-data) --export-on-exit .emulator-data\" \"vp run --parallel --filter !vinyl-rehab dev\"",
     "test": "firebase emulators:exec --project vinyl-rehab-local --only firestore,auth \"vp run --no-cache --filter !vinyl-rehab test\"",
     "check": "vp check && pnpm --filter @vinyl/web typecheck",
-    "import": "node --env-file=.env scripts/import-wordpress/run.ts"
+    "import": "node --env-file=.env scripts/import-wordpress/run.ts",
+    "e2e": "firebase emulators:exec --config e2e/firebase.json --project vinyl-rehab-e2e --only firestore,auth \"playwright test\""
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/node": "^24.0.0",
     "concurrently": "^10.0.6",
     "firebase-tools": "^15.34.0",
