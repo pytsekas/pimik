@@ -9,6 +9,8 @@ import type { RenderResult, render as renderPage } from './src/entry-server.ts';
 export type WebServerOptions = {
   apiUrl: string;
   imageBaseUrl: string;
+  /** Public origin, used for canonical links. */
+  siteUrl?: string;
   /** Vite middleware + on-the-fly SSR modules instead of the built `dist/`. */
   dev: boolean;
   /** Dev only; defaults to on. Tests turn it off so no websocket port is opened. */
@@ -176,7 +178,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   const app = express();
   app.disable('x-powered-by');
   const api = options.apiClient ?? createApiClient(options.apiUrl);
-  const siteConfig = { imageBaseUrl: options.imageBaseUrl };
+  const siteConfig = { imageBaseUrl: options.imageBaseUrl, siteUrl: options.siteUrl ?? '' };
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -219,6 +221,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { app } = await createWebServer({
     apiUrl: config.apiUrl,
     imageBaseUrl: config.imageBaseUrl,
+    siteUrl: config.siteUrl,
     dev: process.env.NODE_ENV !== 'production',
   });
   app.listen(config.port, () => {

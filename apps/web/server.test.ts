@@ -25,14 +25,34 @@ function post(overrides: Partial<Post>): Post {
 }
 
 const posts = [
-  post({ id: 'a', slug: 'david-bowie-★', title: 'David Bowie – Low' }),
+  post({ id: 'a', slug: 'david-bowie-★', title: 'david bowie – ★', tagSlugs: ['bowie'] }),
   post({ id: 'b', slug: 'xss', title: XSS_TITLE }),
+  post({
+    id: 'd',
+    slug: 'with-photo',
+    title: 'With Photo',
+    photos: [
+      {
+        id: 'x',
+        width: 2000,
+        height: 1500,
+        paths: {
+          original: 'photos/x/original.jpg',
+          w1000: 'photos/x/w1000.jpg',
+          w300: 'photos/x/w300.jpg',
+        },
+      },
+    ],
+  }),
+  post({ id: 'c', slug: 'drone', title: 'Ambient Drone', tagSlugs: ['ambient'] }),
 ];
 
 const fakeApi: ApiClient = {
-  async listPosts({ page, category }) {
+  async listPosts({ page, category, tag }) {
     if (page > 1 || (category !== undefined && category !== 'vinyl')) throw new NotFoundError();
-    return { items: posts, page, totalPages: 1 } satisfies Page<Post>;
+    const items = tag ? posts.filter((candidate) => candidate.tagSlugs.includes(tag)) : posts;
+    if (items.length === 0) throw new NotFoundError();
+    return { items, page, totalPages: 1 } satisfies Page<Post>;
   },
   async getPostBySlug(slug) {
     return posts.find((candidate) => candidate.slug === slug) ?? null;
@@ -44,7 +64,7 @@ const fakeApi: ApiClient = {
     return [];
   },
   async listTags() {
-    return [];
+    return [{ slug: 'ambient', name: 'Ambient' }];
   },
   async legacyImage() {
     return null;
@@ -70,6 +90,7 @@ beforeAll(async () => {
   web = await createWebServer({
     apiUrl: `http://127.0.0.1:${port}`,
     imageBaseUrl: 'http://images.test/bucket',
+    siteUrl: 'http://site.test',
     dev: true,
     hmr: false,
     apiClient: fakeApi,
@@ -114,7 +135,7 @@ describe('web SSR', () => {
     expect(res.text).toContain('<html lang="en"');
     expect(res.text).toContain('Vinyl Rehab');
     expect(res.text).toContain('music is my radar');
-    expect(res.text).toContain('David Bowie – Low');
+    expect(res.text).toContain('david bowie – ★');
     expect(res.text).toContain('&lt;/script&gt;&lt;script&gt;alert(1)');
     expect(res.text).toContain('fonts.googleapis.com');
   });
@@ -170,8 +191,9 @@ describe('web SSR', () => {
     expect(res.text).toContain(
       '<title>&lt;&#x2F;script&gt;&lt;script&gt;alert(1) – Vinyl Rehab</title>',
     );
-    expect(res.text).toContain('<h2>&lt;/script&gt;&lt;script&gt;alert(1)</h2>');
-    expect(res.text).not.toContain(XSS_TITLE);
+    expect(res.text).toMatch(/<h2[^>]*>\s*<a[^>]*>&lt;\/script&gt;&lt;script&gt;alert\(1\)<\/a>/);
+    // Attribute values may hold `<`/`>` safely (only quotes are escaped); everything else may not.
+    expect(res.text.replace(/content="[^"]*"/g, '')).not.toContain(XSS_TITLE);
   });
 
   it('renders the not found page for unknown paths', async () => {
@@ -193,13 +215,37 @@ describe('web SSR', () => {
   it('renders a category list', async () => {
     const res = await request(web.app).get('/category/vinyl/');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('David Bowie – Low');
+    expect(res.text).toContain('david bowie – ★');
   });
 
   it('decodes non-ASCII post slugs', async () => {
     const res = await request(web.app).get('/vinyl/david-bowie-%e2%98%85/');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('David Bowie – Low');
+    expect(res.text).toContain('david bowie – ★');
+  });
+
+  it('lists only posts with the tag and names the tag in the heading', async () => {
+    const res = await request(web.app).get('/tag/ambient/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Ambient Drone');
+    expect(res.text).not.toContain('david bowie');
+    expect(res.text).toContain('<title>Ambient – Vinyl Rehab</title>');
+  });
+
+  it('sets canonical, description and the default title on the home page', async () => {
+    const res = await request(web.app).get('/');
+    expect(res.text).toContain('<title>Vinyl Rehab – music is my radar</title>');
+    expect(res.text).toContain('<link rel="canonical" href="http://site.test/">');
+    expect(res.text).toContain('name="description"');
+  });
+
+  it('titles a post page and points og:image at the main photo', async () => {
+    const res = await request(web.app).get('/vinyl/with-photo/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<title>With Photo – Vinyl Rehab</title>');
+    expect(res.text).toContain('content="http://images.test/bucket/photos/x/w1000.jpg"');
+    expect(res.text).toContain('rel="canonical" href="http://site.test/vinyl/with-photo/"');
+    expect(res.text).toContain('http://images.test/bucket/photos/x/original.jpg');
   });
 
   it('redirects a post requested under the wrong category', async () => {

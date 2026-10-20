@@ -1,7 +1,7 @@
 import { inject, type App, type InjectionKey } from 'vue';
 
 /** Runtime config the app needs on both server and client; travels in `window.__STATE__`. */
-export type SiteConfig = { imageBaseUrl: string };
+export type SiteConfig = { imageBaseUrl: string; siteUrl: string };
 
 const SITE_CONFIG_KEY: InjectionKey<SiteConfig> = Symbol('siteConfig');
 

@@ -1,4 +1,4 @@
-import type { Page, Post } from '@vinyl/shared';
+import type { Page, Post, Term } from '@vinyl/shared';
 import { inject, toRef, type App, type InjectionKey, type Ref } from 'vue';
 import type { RouteLocationNormalized, RouteParamsGeneric, Router } from 'vue-router';
 import { isNotFoundError, type ApiClient } from './api.ts';
@@ -45,15 +45,25 @@ function pageNumber(params: RouteParamsGeneric): number | null {
   return Number.isSafeInteger(page) && page >= 1 ? page : null;
 }
 
-export type ListPageData = { posts: Page<Post>; category?: string; tag?: string };
+export type ListPageData = {
+  posts: Page<Post>;
+  categories: Term[];
+  tags: Term[];
+  category?: string;
+  tag?: string;
+};
 
 export const loadList: PageLoader = async ({ params, api }) => {
   const page = pageNumber(params);
   if (page === null) return null;
   const category = param(params, 'category');
   const tag = param(params, 'tag');
-  const posts = await api.listPosts({ page, category, tag });
-  return { posts, category, tag } satisfies ListPageData;
+  const [posts, categories, tags] = await Promise.all([
+    api.listPosts({ page, category, tag }),
+    api.listCategories(),
+    api.listTags(),
+  ]);
+  return { posts, categories, tags, category, tag } satisfies ListPageData;
 };
 
 export const loadPost: PageLoader = async ({ params, api }) => {

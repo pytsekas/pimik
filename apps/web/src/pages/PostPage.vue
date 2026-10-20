@@ -1,15 +1,30 @@
 <script setup lang="ts">
 import type { Post } from '@vinyl/shared';
-import { useHead } from '@unhead/vue';
+import PostEntry from '../components/PostEntry.vue';
 import { usePageData } from '../pageData.ts';
+import { useSeo } from '../seo.ts';
+import { useSiteConfig } from '../siteConfig.ts';
 
-// Placeholder until the real post page lands; only shows the title.
+const DESCRIPTION_MAX = 160;
+
 const post = usePageData<Post>();
-useHead({ title: () => post.value.title });
+const { imageBaseUrl } = useSiteConfig();
+
+function description(): string {
+  const text = post.value.text?.replace(/\s+/g, ' ').trim();
+  return text ? text.slice(0, DESCRIPTION_MAX) : `${post.value.title} on Vinyl Rehab`;
+}
+
+useSeo({
+  title: () => post.value.title,
+  description,
+  image: () => post.value.photos[0]?.paths.w1000,
+  path: () =>
+    `/${encodeURIComponent(post.value.categorySlug)}/${encodeURIComponent(post.value.slug)}/`,
+});
 </script>
 
 <template>
-  <article class="post-page">
-    <h2>{{ post.title }}</h2>
-  </article>
+  <!-- keyed so the photo selection resets when client navigation lands on another post -->
+  <PostEntry :key="post.id" :post="post" :image-base-url="imageBaseUrl" full />
 </template>
