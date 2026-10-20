@@ -1,11 +1,177 @@
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import type { Page, Post } from '@vinyl/shared';
 import request from 'supertest';
-import { describe, expect, it } from 'vite-plus/test';
-import { createWebServer } from './server.ts';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { NotFoundError, type ApiClient } from './src/api.ts';
+import { createWebServer, type WebServer } from './server.ts';
+
+const XSS_TITLE = '</script><script>alert(1)';
+
+function post(overrides: Partial<Post>): Post {
+  return {
+    id: 'id',
+    slug: 'slug',
+    title: 'Title',
+    categorySlug: 'vinyl',
+    tagSlugs: [],
+    publishedAt: '2024-01-01',
+    status: 'published',
+    photos: [],
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+const posts = [
+  post({ id: 'a', slug: 'david-bowie-★', title: 'David Bowie – Low' }),
+  post({ id: 'b', slug: 'xss', title: XSS_TITLE }),
+];
+
+const fakeApi: ApiClient = {
+  async listPosts({ page, category }) {
+    if (page > 1 || (category !== undefined && category !== 'vinyl')) throw new NotFoundError();
+    return { items: posts, page, totalPages: 1 } satisfies Page<Post>;
+  },
+  async getPostBySlug(slug) {
+    return posts.find((candidate) => candidate.slug === slug) ?? null;
+  },
+  async getPostByWpId() {
+    return null;
+  },
+  async listCategories() {
+    return [];
+  },
+  async listTags() {
+    return [];
+  },
+  async legacyImage() {
+    return null;
+  },
+};
+
+let upstream: Server;
+const upstreamRequests: string[] = [];
+let web: WebServer;
+
+beforeAll(async () => {
+  upstream = createServer((req, res) => {
+    upstreamRequests.push(req.url ?? '');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ items: [], page: 2, totalPages: 0 }));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, resolve));
+  const { port } = upstream.address() as AddressInfo;
+  web = await createWebServer({
+    apiUrl: `http://127.0.0.1:${port}`,
+    imageBaseUrl: 'http://images.test/bucket',
+    dev: true,
+    hmr: false,
+    apiClient: fakeApi,
+  });
+});
+
+afterAll(async () => {
+  await web?.close();
+  await new Promise((resolve) => upstream?.close(resolve));
+});
 
 describe('web GET /health', () => {
   it('returns ok', async () => {
-    const res = await request(createWebServer()).get('/health');
+    const res = await request(web.app).get('/health');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'ok' });
+  });
+});
+
+describe('web SSR', () => {
+  it('renders the home page with header and post titles', async () => {
+    const res = await request(web.app).get('/');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('<html lang="en"');
+    expect(res.text).toContain('Vinyl Rehab');
+    expect(res.text).toContain('music is my radar');
+    expect(res.text).toContain('David Bowie – Low');
+    expect(res.text).toContain('&lt;/script&gt;&lt;script&gt;alert(1)');
+    expect(res.text).toContain('fonts.googleapis.com');
+  });
+
+  it('serialises state without letting a post title close the script tag', async () => {
+    const res = await request(web.app).get('/');
+    expect(res.text).toContain('window.__STATE__');
+    expect(res.text).not.toContain(XSS_TITLE);
+    const scripts = res.text.match(/<script>window\.__STATE__=[\s\S]*?<\/script>/g);
+    expect(scripts).toHaveLength(1);
+    expect(scripts?.[0]).toContain('alert(1)');
+  });
+
+  it('redirects paths without a trailing slash', async () => {
+    const res = await request(web.app).get('/category/vinyl');
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/category/vinyl/');
+  });
+
+  it('keeps the query string when redirecting', async () => {
+    const res = await request(web.app).get('/tag/rock?x=1');
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/tag/rock/?x=1');
+  });
+
+  it('renders the not found page for unknown paths', async () => {
+    const res = await request(web.app).get('/no/such/thing/x/');
+    expect(res.status).toBe(404);
+    expect(res.text).toContain('Page not found');
+    expect(res.text).toContain('music is my radar');
+  });
+
+  it.each(['/page/99/', '/page/0/', '/page/abc/', '/category/nope/', '/tag/x/page/x/'])(
+    'returns 404 for %s',
+    async (path) => {
+      const res = await request(web.app).get(path);
+      expect(res.status).toBe(404);
+      expect(res.text).toContain('Page not found');
+    },
+  );
+
+  it('renders a category list', async () => {
+    const res = await request(web.app).get('/category/vinyl/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('David Bowie – Low');
+  });
+
+  it('decodes non-ASCII post slugs', async () => {
+    const res = await request(web.app).get('/vinyl/david-bowie-%e2%98%85/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('David Bowie – Low');
+  });
+
+  it('redirects a post requested under the wrong category', async () => {
+    const res = await request(web.app).get('/cd/xss/');
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/vinyl/xss/');
+  });
+
+  it('serves the admin shell without server-rendered content', async () => {
+    const res = await request(web.app).get('/admin/posts/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<div id="app"></div>');
+    expect(res.text).not.toContain('window.__STATE__');
+  });
+});
+
+describe('web /v1 proxy', () => {
+  it('forwards public GET requests to the api', async () => {
+    const res = await request(web.app).get('/v1/posts?page=2');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [], page: 2, totalPages: 0 });
+    expect(upstreamRequests).toContain('/v1/posts?page=2');
+  });
+
+  it('does not forward admin requests', async () => {
+    const res = await request(web.app).get('/v1/admin/posts');
+    expect(res.status).toBe(404);
+    expect(upstreamRequests.some((url) => url.startsWith('/v1/admin'))).toBe(false);
   });
 });

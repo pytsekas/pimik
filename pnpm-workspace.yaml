@@ -4,3 +4,4 @@ packages:
   - scripts/*
 allowBuilds:
   protobufjs: false
+  '@firebase/util': false

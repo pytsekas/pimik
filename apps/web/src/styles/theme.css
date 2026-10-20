@@ -1,0 +1,42 @@
+:root {
+  --bg: #6d6d6d;
+  --text: #f2f2f2;
+  --text-muted: #ddd;
+  --accent: #ecae80;
+  --dark: #2c3033;
+  --font-heading: 'Patua One', serif;
+  --font-body: 'Droid Sans', sans-serif;
+  --max-photo: 2000px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.6;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+a {
+  color: var(--accent);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
