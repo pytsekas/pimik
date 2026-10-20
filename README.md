@@ -15,8 +15,26 @@ Blog (Vue SSR web app + Express API) replacing the old WordPress site. pnpm mono
 
 ## Getting started
 
+Create a file named `.env` (gitignored) in the repo root with these variables:
+
+```
+GCLOUD_PROJECT=vinyl-rehab-local
+FIRESTORE_EMULATOR_HOST=localhost:8080
+FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
+STORAGE_EMULATOR_HOST=http://localhost:4443
+BUCKET=vinyl-rehab-photos
+IMAGE_BASE_URL=http://localhost:4443/vinyl-rehab-photos
+ADMIN_EMAILS=marko.pytsep@iglu.ee
+API_PORT=3001
+WEB_PORT=3000
+API_URL=http://localhost:3001
+VITE_FIREBASE_API_KEY=fake-api-key
+VITE_FIREBASE_AUTH_EMULATOR_URL=http://localhost:9099
+```
+
+Then:
+
 ```sh
-cp .env.example .env
 pnpm install
 pnpm dev     # starts fake-gcs, Firebase emulators (UI on :4000), web and api
 ```
@@ -25,6 +43,6 @@ pnpm dev     # starts fake-gcs, Firebase emulators (UI on :4000), web and api
 
 ```sh
 docker compose up -d   # storage emulator, required by tests
-pnpm test              # runs all tests inside the Firestore + Auth emulators
+pnpm test              # needs no .env; runs all tests inside the Firestore + Auth emulators
 pnpm check             # lint, format and type-check (vp check)
 ```

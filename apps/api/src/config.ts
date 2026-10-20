@@ -4,8 +4,16 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
   GCLOUD_PROJECT: z.string().min(1),
   BUCKET: z.string().min(1),
-  IMAGE_BASE_URL: z.string().min(1),
-  ADMIN_EMAILS: z.string().min(1),
+  IMAGE_BASE_URL: z.url(),
+  ADMIN_EMAILS: z
+    .string()
+    .transform((value) =>
+      value
+        .split(',')
+        .map((email) => email.trim())
+        .filter((email) => email.length > 0),
+    )
+    .refine((emails) => emails.length > 0, 'at least one admin email required'),
   STORAGE_EMULATOR_HOST: z.string().min(1).optional(),
 });
 
@@ -30,9 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     projectId: values.GCLOUD_PROJECT,
     bucket: values.BUCKET,
     imageBaseUrl: values.IMAGE_BASE_URL,
-    adminEmails: values.ADMIN_EMAILS.split(',')
-      .map((email) => email.trim())
-      .filter((email) => email.length > 0),
+    adminEmails: values.ADMIN_EMAILS,
   };
   if (values.STORAGE_EMULATOR_HOST) {
     config.storageEmulatorHost = values.STORAGE_EMULATOR_HOST;

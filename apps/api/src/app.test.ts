@@ -29,6 +29,14 @@ describe('loadConfig', () => {
     expect(config.adminEmails).toEqual(['a@x.ee', 'b@x.ee']);
   });
 
+  it('rejects ADMIN_EMAILS that is empty after trimming', () => {
+    expect(() => loadConfig({ ...baseEnv, ADMIN_EMAILS: ' , ' })).toThrow(/ADMIN_EMAILS/);
+  });
+
+  it('rejects IMAGE_BASE_URL that is not a URL', () => {
+    expect(() => loadConfig({ ...baseEnv, IMAGE_BASE_URL: 'not a url' })).toThrow(/IMAGE_BASE_URL/);
+  });
+
   it('applies defaults and optional emulator host', () => {
     const config = loadConfig({ ...baseEnv, STORAGE_EMULATOR_HOST: 'http://localhost:4443' });
     expect(config.port).toBe(3001);
