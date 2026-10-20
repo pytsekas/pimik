@@ -2,6 +2,10 @@ import request from 'supertest';
 import { describe, expect, it } from 'vite-plus/test';
 import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
+import { initFirebase } from './firebase.ts';
+import { PhotoIndexRepo } from './repo/photoIndex.ts';
+import { PostRepo } from './repo/posts.ts';
+import { TermRepo } from './repo/terms.ts';
 
 const baseEnv = {
   GCLOUD_PROJECT: 'vinyl-rehab-local',
@@ -12,7 +16,15 @@ const baseEnv = {
 
 describe('GET /health', () => {
   it('returns ok', async () => {
-    const app = createApp({ config: loadConfig(baseEnv) });
+    const config = loadConfig(baseEnv);
+    const { db } = initFirebase(config);
+    const app = createApp({
+      config,
+      posts: new PostRepo(db),
+      categories: new TermRepo(db, 'categories'),
+      tags: new TermRepo(db, 'tags'),
+      photoIndex: new PhotoIndexRepo(db),
+    });
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'ok' });
