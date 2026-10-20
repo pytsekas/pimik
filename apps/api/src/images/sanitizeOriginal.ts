@@ -34,7 +34,10 @@ export async function sanitizeOriginal(
       throw new InvalidImageError('Input image exceeds pixel limit');
     }
     if (meta.format === 'jpeg' && (meta.orientation ?? 1) === 1) {
-      return { data: stripJpegMetadata(input), contentType: 'image/jpeg', ...size };
+      const stripped = stripJpegMetadata(input);
+      if (!(await hasMetadata(stripped))) {
+        return { data: stripped, contentType: 'image/jpeg', ...size };
+      }
     }
     const pipeline = sharp(input, { limitInputPixels }).rotate().keepIccProfile();
     switch (meta.format) {
@@ -50,6 +53,12 @@ export async function sanitizeOriginal(
   } catch (err) {
     throw asInvalidImage(err);
   }
+}
+
+/** Safety net after the byte-level strip: anything libvips still recognises forces a re-encode. */
+async function hasMetadata(data: Buffer): Promise<boolean> {
+  const { exif, xmp, iptc } = await sharp(data).metadata();
+  return exif !== undefined || xmp !== undefined || iptc !== undefined;
 }
 
 async function reencode(
