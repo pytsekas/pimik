@@ -138,8 +138,14 @@ export function adminRouter(deps: AdminDeps): Router {
     ]);
   }
 
-  /** Storage cleanup runs after the DB write; failures leave orphans rather than failing the request. */
-  async function deletePhotos(photos: Photo[]): Promise<void> {
+  /**
+   * Storage cleanup runs after the DB write; failures leave orphans rather than failing the request.
+   * Photos another post still references are kept.
+   */
+  async function deletePhotos(candidates: Photo[]): Promise<void> {
+    if (candidates.length === 0) return;
+    const inUse = await deps.posts.photoIdsInUse();
+    const photos = candidates.filter((photo) => !inUse.has(photo.id));
     const results = await Promise.allSettled(
       photos.map((photo) => deps.photoStore.deletePhoto(photo.id)),
     );

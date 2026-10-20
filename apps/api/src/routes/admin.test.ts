@@ -247,6 +247,19 @@ describe('admin routes', () => {
       expect(res.status).toBe(404);
     });
 
+    it('keeps a removed photo that another post still uses', async () => {
+      const post = await seedThreePhotos();
+      const other = await posts.create(makePostInput({ slug: 'other', photos: [photo('b')] }));
+      const res = await request(app)
+        .put(`/v1/admin/posts/${post.id}`)
+        .set(bearer())
+        .send(body({ slug: 'three', photos: [photo('a')] }));
+      expect(res.status).toBe(200);
+      expect(deletePhoto).toHaveBeenCalledTimes(1);
+      expect(deletePhoto).toHaveBeenCalledWith('c');
+      expect((await posts.getById(other.id))?.photos.map((p) => p.id)).toEqual(['b']);
+    });
+
     it('still succeeds when storage deletion fails', async () => {
       const post = await seedThreePhotos();
       deletePhoto.mockRejectedValue(new Error('gcs down'));
@@ -270,6 +283,19 @@ describe('admin routes', () => {
       const after = await request(app).get('/v1/posts/by-slug/gone');
       expect(after.status).toBe(404);
       expect(deletePhoto.mock.calls.map((c) => c[0]).sort()).toEqual(['a', 'b']);
+    });
+
+    it('keeps photos that another post still uses', async () => {
+      const gone = await posts.create(
+        makePostInput({ slug: 'gone', photos: [photo('shared'), photo('own')] }),
+      );
+      await posts.create(makePostInput({ slug: 'kept', photos: [photo('shared')] }));
+      const res = await request(app).delete(`/v1/admin/posts/${gone.id}`).set(bearer());
+      expect(res.status).toBe(204);
+      expect(deletePhoto.mock.calls.map((c) => c[0])).toEqual(['own']);
+      const kept = await request(app).get('/v1/posts/by-slug/kept');
+      expect(kept.status).toBe(200);
+      expect(kept.body.photos.map((p: Photo) => p.id)).toEqual(['shared']);
     });
 
     it('returns 404 for an unknown id', async () => {

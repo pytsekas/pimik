@@ -66,6 +66,12 @@ export class PostRepo {
     return snapshot.docs.map((doc) => toPost(doc.id, doc.data()));
   }
 
+  /** Ids of every photo some post still uses; photos may be shared between imported posts. */
+  async photoIdsInUse(): Promise<Set<string>> {
+    const posts = await this.listAll();
+    return new Set(posts.flatMap((post) => post.photos.map((photo) => photo.id)));
+  }
+
   async getById(id: string): Promise<Post | null> {
     const doc = await this.db.collection('posts').doc(id).get();
     return doc.exists ? toPost(doc.id, doc.data() ?? {}) : null;
