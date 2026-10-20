@@ -1,7 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
+import { uneval } from 'devalue';
+import express, {
+  type ErrorRequestHandler,
+  type Express,
+  type Request,
+  type RequestHandler,
+} from 'express';
 import { loadConfig } from './config.ts';
 import { createApiClient, type ApiClient } from './src/api.ts';
 import type { RenderResult, render as renderPage } from './src/entry-server.ts';
@@ -36,6 +42,8 @@ type Renderer = {
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const UPSTREAM_TIMEOUT_MS = 10_000;
 const MAX_PROXY_BODY_BYTES = 5 * 1024 * 1024;
+const MAX_ADMIN_REQUEST_BYTES = 1024 * 1024;
+const ADMIN_API_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE']);
 
 async function devRenderer(app: Express, hmr: boolean): Promise<Renderer> {
   const { createServer } = await import('vite-plus');
@@ -107,25 +115,64 @@ async function readCapped(response: Response, maxBytes: number): Promise<Buffer 
   return Buffer.concat(chunks);
 }
 
-/** Forwards public api reads so the browser can use same-origin `/v1`; nothing else passes. */
-function publicApiProxy(apiUrl: string): RequestHandler {
+/**
+ * Admin calls pass with their bearer header and body. The path must already be in normal form
+ * (no `..` or `%2e` segments to resolve), so only what the browser asked for literally is reached.
+ */
+function isAdminApiRequest(req: Request, target: URL): boolean {
+  const rawPath = req.originalUrl.split('?', 1)[0];
+  return (
+    ADMIN_API_METHODS.has(req.method) &&
+    target.pathname.startsWith('/v1/admin/') &&
+    target.pathname === rawPath
+  );
+}
+
+/** Reads the request body, or returns null once it exceeds `maxBytes`. */
+async function readRequestCapped(req: Request, maxBytes: number): Promise<Buffer | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).byteLength;
+    if (size > maxBytes) return null;
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** Forwards public api reads and admin calls so the browser can use same-origin `/v1`. */
+function apiProxy(apiUrl: string): RequestHandler {
   const apiOrigin = new URL(apiUrl).origin;
   return async (req, res) => {
     const target = new URL(req.originalUrl, apiUrl);
-    // ADMIN_API_PASSTHROUGH: the admin UI's `/v1/admin` forwarding (with its auth
-    // header) is added here as its own explicit branch; the public allowlist stays as is.
-    const allowed =
-      (req.method === 'GET' || req.method === 'HEAD') &&
-      target.origin === apiOrigin &&
-      isPublicApiPath(target.pathname);
-    if (!allowed) {
+    const publicRead =
+      (req.method === 'GET' || req.method === 'HEAD') && isPublicApiPath(target.pathname);
+    const admin = isAdminApiRequest(req, target);
+    if (target.origin !== apiOrigin || !(publicRead || admin)) {
       res.status(404).json({ error: 'not_found', message: 'Not found' });
       return;
+    }
+    const headers: Record<string, string> = { accept: 'application/json' };
+    let requestBody: Buffer | undefined;
+    if (admin) {
+      for (const name of ['authorization', 'content-type'] as const) {
+        const value = req.headers[name];
+        if (value) headers[name] = value;
+      }
+      if (req.method === 'POST' || req.method === 'PUT') {
+        const read = await readRequestCapped(req, MAX_ADMIN_REQUEST_BYTES);
+        if (read === null) {
+          res.status(413).json({ error: 'too_large', message: 'Request body too large' });
+          return;
+        }
+        requestBody = read;
+      }
     }
     try {
       const upstream = await fetch(target, {
         method: req.method,
-        headers: { accept: 'application/json' },
+        headers,
+        body: requestBody && Uint8Array.from(requestBody),
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
       const body = await readCapped(upstream, MAX_PROXY_BODY_BYTES);
@@ -168,8 +215,11 @@ const trailingSlashRedirect: RequestHandler = (req, res, next) => {
   res.redirect(301, location);
 };
 
-function fillTemplate(template: string, page?: RenderResult): string {
-  const state = page ? `<script>window.__STATE__=${page.state}</script>` : '';
+function fillTemplate(
+  template: string,
+  page?: RenderResult,
+  state = page ? `<script>window.__STATE__=${page.state}</script>` : '',
+): string {
   return template
     .replace('<html lang="en">', () =>
       page?.htmlAttrs ? `<html${page.htmlAttrs}>` : '<html lang="en">',
@@ -190,7 +240,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
-  app.use('/v1', publicApiProxy(options.apiUrl));
+  app.use('/v1', apiProxy(options.apiUrl));
 
   const renderer = options.dev
     ? await devRenderer(app, options.hmr ?? true)
@@ -230,8 +280,11 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
 
   app.use(trailingSlashRedirect);
 
+  // The client-only admin gets an empty shell plus the config it can't get from Vite.
+  const adminState = `<script>window.__ADMIN_CONFIG__=${uneval({ imageBaseUrl: options.imageBaseUrl })}</script>`;
   app.get(['/admin/', '/admin/{*rest}'], async (req, res) => {
-    res.type('html').send(fillTemplate(await renderer.template(req.originalUrl)));
+    const template = await renderer.template(req.originalUrl);
+    res.type('html').send(fillTemplate(template, undefined, adminState));
   });
 
   app.get('/{*path}', async (req, res) => {

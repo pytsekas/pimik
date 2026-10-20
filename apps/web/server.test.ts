@@ -1,4 +1,4 @@
-import { createServer, get, type Server } from 'node:http';
+import { createServer, get, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page, Post } from '@vinyl/shared';
 import request from 'supertest';
@@ -80,11 +80,27 @@ const fakeApi: ApiClient = {
 
 let upstream: Server;
 const upstreamRequests: string[] = [];
+type Recorded = { method: string; url: string; headers: IncomingHttpHeaders; body: string };
+const upstreamDetails: Recorded[] = [];
 let web: WebServer;
 
 beforeAll(async () => {
-  upstream = createServer((req, res) => {
+  upstream = createServer(async (req, res) => {
     upstreamRequests.push(req.url ?? '');
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const body = Buffer.concat(chunks).toString();
+    upstreamDetails.push({
+      method: req.method ?? '',
+      url: req.url ?? '',
+      headers: req.headers,
+      body,
+    });
+    if (req.url?.startsWith('/v1/admin/')) {
+      res.writeHead(201, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     if (req.url === '/v1/categories') {
       res.end(JSON.stringify(['x'.repeat(6 * 1024 * 1024)]));
@@ -266,6 +282,9 @@ describe('web SSR', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('<div id="app"></div>');
     expect(res.text).not.toContain('window.__STATE__');
+    expect(res.text).toContain(
+      '<script>window.__ADMIN_CONFIG__={imageBaseUrl:"http://images.test/bucket"}</script>',
+    );
   });
 });
 
@@ -278,7 +297,7 @@ describe('web /v1 proxy', () => {
   });
 
   it.each([
-    '/v1/admin/posts',
+    '/v1/admin',
     '/v1/Admin/posts',
     '/v1/ADMIN',
     '/v1/whatever',
@@ -318,6 +337,78 @@ describe('web /v1 proxy', () => {
     const res = await request(web.app).get('/v1/categories');
     expect(res.status).toBe(502);
     expect(res.body.error).toBe('bad_gateway');
+  });
+});
+
+describe('web /v1/admin pass-through', () => {
+  const lastUpstream = () => upstreamDetails.at(-1);
+
+  it('forwards the Authorization header and no other request header', async () => {
+    upstreamDetails.length = 0;
+    const res = await request(web.app)
+      .get('/v1/admin/posts')
+      .set('Authorization', 'Bearer abc')
+      .set('Cookie', 'session=s1')
+      .set('X-Forwarded-For', '1.2.3.4');
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ ok: true });
+    expect(upstreamDetails).toHaveLength(1);
+    expect(lastUpstream()?.url).toBe('/v1/admin/posts');
+    expect(lastUpstream()?.headers.authorization).toBe('Bearer abc');
+    expect(lastUpstream()?.headers.cookie).toBeUndefined();
+    expect(lastUpstream()?.headers['x-forwarded-for']).toBeUndefined();
+  });
+
+  it.each(['post', 'put'] as const)('forwards the %s body and content type', async (method) => {
+    upstreamDetails.length = 0;
+    const body = { title: 'david bowie – ★' };
+    const res = await request(web.app)
+      [method]('/v1/admin/posts/x')
+      .set('Authorization', 'Bearer abc')
+      .send(body);
+    expect(res.status).toBe(201);
+    expect(lastUpstream()).toMatchObject({
+      method: method.toUpperCase(),
+      url: '/v1/admin/posts/x',
+    });
+    expect(lastUpstream()?.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(lastUpstream()?.body ?? '')).toEqual(body);
+  });
+
+  it('forwards DELETE', async () => {
+    upstreamDetails.length = 0;
+    await request(web.app).delete('/v1/admin/posts/x').set('Authorization', 'Bearer abc');
+    expect(lastUpstream()).toMatchObject({ method: 'DELETE', url: '/v1/admin/posts/x' });
+  });
+
+  it('rejects a request body over 1 MB without calling the api', async () => {
+    upstreamDetails.length = 0;
+    const res = await request(web.app)
+      .post('/v1/admin/posts')
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ text: 'x'.repeat(1024 * 1024) }));
+    expect(res.status).toBe(413);
+    expect(upstreamDetails).toEqual([]);
+  });
+
+  it.each(['patch', 'options'] as const)('does not forward %s', async (method) => {
+    upstreamDetails.length = 0;
+    const res = await request(web.app)[method]('/v1/admin/posts');
+    expect(res.status).toBe(404);
+    expect(upstreamDetails).toEqual([]);
+  });
+
+  it.each([
+    '/v1/Admin/posts',
+    '/v1/ADMIN/posts',
+    '/v1/admin/../admin/posts',
+    '/v1/admin/%2e%2e/admin/posts',
+    '/v1/posts/../admin/posts',
+  ])('returns 404 for %s without calling the api', async (path) => {
+    upstreamDetails.length = 0;
+    const res = await rawGet(path);
+    expect(res.status).toBe(404);
+    expect(upstreamDetails).toEqual([]);
   });
 });
 

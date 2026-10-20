@@ -32,6 +32,21 @@ VITE_FIREBASE_API_KEY=fake-api-key
 VITE_FIREBASE_AUTH_EMULATOR_URL=http://localhost:9099
 ```
 
+The `VITE_FIREBASE_*` variables configure Firebase Auth in the admin UI (`/admin/`). Vite builds
+them into the browser bundle from the process environment, so they must be set when the web app
+starts (dev) or is built (production):
+
+- `VITE_FIREBASE_API_KEY` - the Firebase web API key (any value works with the emulator)
+- `VITE_FIREBASE_AUTH_EMULATOR_URL` - when set, sign-in goes to the Auth emulator at this URL
+- `VITE_FIREBASE_PROJECT_ID` - optional, defaults to `vinyl-rehab-local`
+- `VITE_FIREBASE_AUTH_DOMAIN` - optional, defaults to `<project id>.firebaseapp.com`
+
+## Admin
+
+Open http://localhost:3000/admin/ and sign in with Google. Locally the Auth emulator opens a popup
+where you add an account; use an email listed in `ADMIN_EMAILS`. Any other account sees "This
+Google account is not allowed".
+
 Then:
 
 ```sh
