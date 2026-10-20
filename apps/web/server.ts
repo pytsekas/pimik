@@ -28,6 +28,7 @@ type Renderer = {
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const UPSTREAM_TIMEOUT_MS = 10_000;
+const MAX_PROXY_BODY_BYTES = 5 * 1024 * 1024;
 
 async function devRenderer(app: Express, hmr: boolean): Promise<Renderer> {
   const { createServer } = await import('vite-plus');
@@ -69,53 +70,95 @@ async function prodRenderer(app: Express): Promise<Renderer> {
   };
 }
 
-/** Forwards public api reads so the browser can use same-origin `/v1`. */
+/** The api's public read endpoints; matched case-sensitively against the resolved path. */
+const PUBLIC_API_PATHS = [
+  /^\/v1\/posts$/,
+  /^\/v1\/posts\/by-slug\/[^/]+$/,
+  /^\/v1\/posts\/by-wp-id\/\d+$/,
+  /^\/v1\/categories$/,
+  /^\/v1\/tags$/,
+  /^\/v1\/legacy-images\/[^/]+(\/[^/]+)*$/,
+];
+
+function isPublicApiPath(pathname: string): boolean {
+  return PUBLIC_API_PATHS.some((pattern) => pattern.test(pathname));
+}
+
+async function readCapped(response: Response, maxBytes: number): Promise<Buffer | null> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (let next = await reader.read(); !next.done; next = await reader.read()) {
+    size += next.value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(next.value);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** Forwards public api reads so the browser can use same-origin `/v1`; nothing else passes. */
 function publicApiProxy(apiUrl: string): RequestHandler {
   const apiOrigin = new URL(apiUrl).origin;
   return async (req, res) => {
     const target = new URL(req.originalUrl, apiUrl);
-    // The admin UI's `/v1/admin` proxy (with auth header forwarding) belongs here.
-    const isPublic =
+    // ADMIN_API_PASSTHROUGH: the admin UI's `/v1/admin` forwarding (with its auth
+    // header) is added here as its own explicit branch; the public allowlist stays as is.
+    const allowed =
+      (req.method === 'GET' || req.method === 'HEAD') &&
       target.origin === apiOrigin &&
-      target.pathname.startsWith('/v1/') &&
-      !/^\/v1\/admin(\/|$)/.test(target.pathname);
-    if ((req.method !== 'GET' && req.method !== 'HEAD') || !isPublic) {
+      isPublicApiPath(target.pathname);
+    if (!allowed) {
       res.status(404).json({ error: 'not_found', message: 'Not found' });
       return;
     }
-    let upstream: Response;
     try {
-      upstream = await fetch(target, {
+      const upstream = await fetch(target, {
         method: req.method,
         headers: { accept: 'application/json' },
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
+      const body = await readCapped(upstream, MAX_PROXY_BODY_BYTES);
+      if (body === null) {
+        res.status(502).json({ error: 'bad_gateway', message: 'API response too large' });
+        return;
+      }
+      res.status(upstream.status);
+      const contentType = upstream.headers.get('content-type');
+      if (contentType) res.type(contentType);
+      res.send(body);
     } catch {
       res.status(502).json({ error: 'bad_gateway', message: 'API unavailable' });
-      return;
     }
-    res.status(upstream.status);
-    const contentType = upstream.headers.get('content-type');
-    if (contentType) res.type(contentType);
-    res.send(Buffer.from(await upstream.arrayBuffer()));
   };
 }
 
-/** `/category/vinyl` → 301 `/category/vinyl/`; file-like paths (`/feed.xml`) are left alone. */
+/**
+ * `/category/vinyl` → 301 `/category/vinyl/`; file-like paths (`/feed.xml`) are left alone.
+ * Browsers read `\` as `/`, so paths containing one are never redirected (they render 404),
+ * and leading slashes are collapsed so the target can't become `//evil.example`.
+ */
 const trailingSlashRedirect: RequestHandler = (req, res, next) => {
   if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.endsWith('/')) {
     next();
     return;
   }
   const lastSegment = req.path.slice(req.path.lastIndexOf('/') + 1);
-  if (lastSegment.includes('.')) {
+  if (lastSegment.includes('.') || req.path.includes('\\')) {
     next();
     return;
   }
   const queryStart = req.originalUrl.indexOf('?');
   const query = queryStart === -1 ? '' : req.originalUrl.slice(queryStart);
-  // Collapsing leading slashes keeps `//evil.example` from becoming an open redirect.
-  res.redirect(301, `${req.path.replace(/^\/+/, '/')}/${query}`);
+  const location = `/${req.path.replace(/^[/\\]+/, '')}/${query}`;
+  if (new URL(location, 'http://x').host !== 'x') {
+    next();
+    return;
+  }
+  res.redirect(301, location);
 };
 
 function fillTemplate(template: string, page?: RenderResult): string {

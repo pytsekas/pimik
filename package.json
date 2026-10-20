@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "docker compose up -d && concurrently -k -n emu,apps \"firebase emulators:start --project vinyl-rehab-local $([ -f .emulator-data/firebase-export-metadata.json ] && echo --import .emulator-data) --export-on-exit .emulator-data\" \"vp run --parallel --filter !vinyl-rehab dev\"",
     "test": "firebase emulators:exec --project vinyl-rehab-local --only firestore,auth \"vp run --no-cache --filter !vinyl-rehab test\"",
-    "check": "vp check",
+    "check": "vp check && pnpm --filter @vinyl/web typecheck",
     "import": "node --env-file=.env scripts/import-wordpress/run.ts"
   },
   "devDependencies": {

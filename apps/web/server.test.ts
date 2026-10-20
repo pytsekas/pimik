@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, get, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page, Post } from '@vinyl/shared';
 import request from 'supertest';
@@ -59,6 +59,10 @@ beforeAll(async () => {
   upstream = createServer((req, res) => {
     upstreamRequests.push(req.url ?? '');
     res.writeHead(200, { 'content-type': 'application/json' });
+    if (req.url === '/v1/categories') {
+      res.end(JSON.stringify(['x'.repeat(6 * 1024 * 1024)]));
+      return;
+    }
     res.end(JSON.stringify({ items: [], page: 2, totalPages: 0 }));
   });
   await new Promise<void>((resolve) => upstream.listen(0, resolve));
@@ -71,6 +75,23 @@ beforeAll(async () => {
     apiClient: fakeApi,
   });
 });
+
+/** Sends the path byte-for-byte; supertest's URL parsing would turn `\\` into `/`. */
+async function rawGet(path: string): Promise<{ status: number; location?: string }> {
+  const server = web.app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    return await new Promise((resolve, reject) => {
+      get({ host: '127.0.0.1', port, path }, (res) => {
+        res.resume();
+        resolve({ status: res.statusCode ?? 0, location: res.headers.location });
+      }).on('error', reject);
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
 
 afterAll(async () => {
   await web?.close();
@@ -117,6 +138,40 @@ describe('web SSR', () => {
     const res = await request(web.app).get('/tag/rock?x=1');
     expect(res.status).toBe(301);
     expect(res.headers.location).toBe('/tag/rock/?x=1');
+  });
+
+  it.each(['//evil.com/x', '/\\evil.com/x', '/\\\\evil.com/x', '/\\/evil.com/x'])(
+    'never redirects %s off-site',
+    async (path) => {
+      const res = await rawGet(path);
+      if (res.location === undefined) {
+        expect(res.status).toBe(404);
+      } else {
+        expect(res.status).toBe(301);
+        expect(res.location).not.toContain('\\');
+        expect(new URL(res.location, 'http://x').host).toBe('x');
+      }
+    },
+  );
+
+  it('collapses leading slashes when redirecting', async () => {
+    expect(await rawGet('//evil.com/x')).toEqual({ status: 301, location: '/evil.com/x/' });
+  });
+
+  it('returns 404 instead of redirecting a path with a backslash', async () => {
+    const res = await rawGet('/\\evil.com/x');
+    expect(res).toEqual({ status: 404, location: undefined });
+  });
+
+  it('escapes a script-like post title in the title tag and the body', async () => {
+    const res = await request(web.app).get('/vinyl/xss/');
+    expect(res.status).toBe(200);
+    // unhead also escapes `/` inside the title.
+    expect(res.text).toContain(
+      '<title>&lt;&#x2F;script&gt;&lt;script&gt;alert(1) – Vinyl Rehab</title>',
+    );
+    expect(res.text).toContain('<h2>&lt;/script&gt;&lt;script&gt;alert(1)</h2>');
+    expect(res.text).not.toContain(XSS_TITLE);
   });
 
   it('renders the not found page for unknown paths', async () => {
@@ -169,9 +224,46 @@ describe('web /v1 proxy', () => {
     expect(upstreamRequests).toContain('/v1/posts?page=2');
   });
 
-  it('does not forward admin requests', async () => {
-    const res = await request(web.app).get('/v1/admin/posts');
+  it.each([
+    '/v1/admin/posts',
+    '/v1/Admin/posts',
+    '/v1/ADMIN',
+    '/v1/whatever',
+    '/v1/Posts',
+    '/v1/posts/by-wp-id/abc',
+    '/v1/posts/../admin/posts',
+    '/v1/posts/%2e%2e/admin/posts',
+  ])('returns 404 for %s without calling the api', async (path) => {
+    upstreamRequests.length = 0;
+    const res = await rawGet(path);
     expect(res.status).toBe(404);
-    expect(upstreamRequests.some((url) => url.startsWith('/v1/admin'))).toBe(false);
+    expect(upstreamRequests).toEqual([]);
+  });
+
+  it('rejects non-GET requests', async () => {
+    upstreamRequests.length = 0;
+    const res = await request(web.app).post('/v1/posts');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'not_found', message: 'Not found' });
+    expect(upstreamRequests).toEqual([]);
+  });
+
+  it('forwards the other public endpoints', async () => {
+    upstreamRequests.length = 0;
+    for (const path of [
+      '/v1/tags',
+      '/v1/posts/by-slug/david-bowie-%E2%98%85',
+      '/v1/posts/by-wp-id/12',
+      '/v1/legacy-images/2019/01/a.jpg',
+    ]) {
+      expect((await request(web.app).get(path)).status).toBe(200);
+    }
+    expect(upstreamRequests).toHaveLength(4);
+  });
+
+  it('returns 502 when the api response exceeds the size cap', async () => {
+    const res = await request(web.app).get('/v1/categories');
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe('bad_gateway');
   });
 });
