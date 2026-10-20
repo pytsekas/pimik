@@ -1,0 +1,12 @@
+[
+  { "id": 4, "slug": "cassette", "name": "cassette" },
+  { "id": 6, "slug": "drinks", "name": "drinks" },
+  { "id": 18, "slug": "live", "name": "live" },
+  { "id": 19, "slug": "photo", "name": "photo" },
+  { "id": 7, "slug": "sailing", "name": "sailing" },
+  { "id": 108, "slug": "tim", "name": "tim" },
+  { "id": 10, "slug": "turntable", "name": "turntable" },
+  { "id": 1, "slug": "uncategorized", "name": "Uncategorized" },
+  { "id": 44, "slug": "various", "name": "various" },
+  { "id": 5, "slug": "vinyl", "name": "vinyl" }
+]

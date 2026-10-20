@@ -7,7 +7,8 @@
     "./storage/*": "./src/storage/*.ts",
     "./images/*": "./src/images/*.ts",
     "./firebase": "./src/firebase.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./app": "./src/app.ts"
   },
   "scripts": {
     "dev": "node --watch --env-file=../../.env src/server.ts",

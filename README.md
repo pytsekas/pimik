@@ -46,3 +46,22 @@ docker compose up -d   # storage emulator, required by tests
 pnpm test              # needs no .env; runs all tests inside the Firestore + Auth emulators
 pnpm check             # lint, format and type-check (vp check)
 ```
+
+## Importing the WordPress site
+
+`pnpm import` copies every post, category, tag and image from https://vinyl.rehab into the
+configured Firestore and bucket. It reads the same configuration as the api, so start the
+emulators (`pnpm dev`, or `firebase emulators:start` plus `docker compose up -d`) first.
+
+```sh
+pnpm import
+```
+
+The importer is safe to run again: posts are matched by their WordPress id and already imported
+images (matched by their `wp-content/uploads` path) are reused, not downloaded again. Posts whose
+slug is already used by another post are skipped and logged; images that cannot be downloaded are
+logged and the post is imported without them. The last line printed is a JSON summary
+(`posts`, `photos`, `skipped`, `noPhotos`, `failedImages`).
+
+The emulators keep everything in memory: Firestore data is lost when the emulator stops and the
+fake-gcs backend is lost when its container restarts, so run the import again after either.
