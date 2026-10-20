@@ -5,7 +5,7 @@ import { errorHandler, notFoundHandler } from './errors.ts';
 import type { PhotoIndexRepo } from './repo/photoIndex.ts';
 import type { PostRepo } from './repo/posts.ts';
 import type { TermRepo } from './repo/terms.ts';
-import type { PhotoDeleter } from './storage/types.ts';
+import type { PhotoStorage } from './storage/types.ts';
 import { adminRouter } from './routes/admin.ts';
 import { publicRouter } from './routes/public.ts';
 
@@ -16,7 +16,8 @@ export type AppDeps = {
   tags: TermRepo;
   photoIndex: PhotoIndexRepo;
   auth: Auth;
-  photoStore: PhotoDeleter;
+  photoStore: PhotoStorage;
+  maxUploadBytes?: number;
 };
 
 export function createApp(deps: AppDeps): Express {

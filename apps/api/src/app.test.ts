@@ -6,6 +6,7 @@ import { initFirebase } from './firebase.ts';
 import { PhotoIndexRepo } from './repo/photoIndex.ts';
 import { PostRepo } from './repo/posts.ts';
 import { TermRepo } from './repo/terms.ts';
+import { stubPhotoStore } from './test/photoStore.ts';
 
 const baseEnv = {
   GCLOUD_PROJECT: 'vinyl-rehab-local',
@@ -25,7 +26,7 @@ describe('GET /health', () => {
       tags: new TermRepo(db, 'tags'),
       photoIndex: new PhotoIndexRepo(db),
       auth,
-      photoStore: { deletePhoto: async () => {} },
+      photoStore: stubPhotoStore(),
     });
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);

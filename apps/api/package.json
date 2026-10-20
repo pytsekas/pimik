@@ -14,9 +14,11 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@google-cloud/storage": "^8.4.0",
     "@vinyl/shared": "workspace:*",
     "express": "^5.3.0",
     "firebase-admin": "^14.5.0",
+    "sharp": "^0.35.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {

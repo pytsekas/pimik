@@ -12,6 +12,7 @@ import { TermRepo } from '../repo/terms.ts';
 import { makePostInput } from '../test/factory.ts';
 import { getIdToken, resetAuthEmulator } from '../test/idToken.ts';
 import { resetEmulator } from '../test/reset.ts';
+import { stubPhotoStore } from '../test/photoStore.ts';
 
 const PROJECT_ID = 'vinyl-rehab-local';
 const ADMIN_EMAIL = 'Admin@Example.com';
@@ -61,7 +62,7 @@ describe('admin routes', () => {
       tags,
       photoIndex: new PhotoIndexRepo(firebase.db),
       auth,
-      photoStore: { deletePhoto },
+      photoStore: stubPhotoStore({ deletePhoto }),
     });
   });
 

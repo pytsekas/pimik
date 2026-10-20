@@ -11,7 +11,8 @@ import {
   type PostRepo,
 } from '../repo/posts.ts';
 import type { TermRepo } from '../repo/terms.ts';
-import type { PhotoDeleter } from '../storage/types.ts';
+import type { PhotoStorage } from '../storage/types.ts';
+import { uploadsRouter } from './uploads.ts';
 
 export type AdminDeps = {
   config: Config;
@@ -19,7 +20,8 @@ export type AdminDeps = {
   posts: PostRepo;
   categories: TermRepo;
   tags: TermRepo;
-  photoStore: PhotoDeleter;
+  photoStore: PhotoStorage;
+  maxUploadBytes?: number;
 };
 
 const PHOTO_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -55,6 +57,7 @@ function parseInput(raw: unknown): Resolved {
 export function adminRouter(deps: AdminDeps): Router {
   const router = Router();
   router.use(requireAdmin(deps.auth, deps.config.adminEmails));
+  router.use('/uploads', uploadsRouter(deps));
 
   router.get('/posts', async (_req, res) => {
     res.json(await deps.posts.listAll());

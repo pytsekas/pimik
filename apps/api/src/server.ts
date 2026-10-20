@@ -4,9 +4,14 @@ import { initFirebase } from './firebase.ts';
 import { PhotoIndexRepo } from './repo/photoIndex.ts';
 import { PostRepo } from './repo/posts.ts';
 import { TermRepo } from './repo/terms.ts';
+import { PhotoStore } from './storage/bucket.ts';
 
 const config = loadConfig();
 const { db, auth } = initFirebase(config);
+const photoStore = new PhotoStore(config);
+if (config.storageEmulatorHost) {
+  await photoStore.ensureBucket();
+}
 const app = createApp({
   config,
   posts: new PostRepo(db),
@@ -14,8 +19,7 @@ const app = createApp({
   tags: new TermRepo(db, 'tags'),
   photoIndex: new PhotoIndexRepo(db),
   auth,
-  // Replaced by the real PhotoStore once uploads land.
-  photoStore: { deletePhoto: async () => {} },
+  photoStore,
 });
 
 app.listen(config.port, () => {

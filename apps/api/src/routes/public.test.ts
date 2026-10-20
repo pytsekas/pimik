@@ -9,6 +9,7 @@ import { PostRepo } from '../repo/posts.ts';
 import { TermRepo } from '../repo/terms.ts';
 import { makePostInput } from '../test/factory.ts';
 import { resetEmulator } from '../test/reset.ts';
+import { stubPhotoStore } from '../test/photoStore.ts';
 
 const PROJECT_ID = 'vinyl-rehab-local';
 const IMAGE_BASE_URL = 'http://localhost:4443/vinyl-rehab-photos';
@@ -39,7 +40,7 @@ describe('public routes', () => {
       tags,
       photoIndex,
       auth,
-      photoStore: { deletePhoto: async () => {} },
+      photoStore: stubPhotoStore(),
     });
   });
 
