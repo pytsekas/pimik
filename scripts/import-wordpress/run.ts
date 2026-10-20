@@ -99,6 +99,10 @@ export async function runImport(options: ImportOptions): Promise<ImportStats> {
   for (const wp of wpPosts) {
     await importPost(ctx, parseWpPost(wp, categories, tags));
   }
+  // A running api is another process and cannot be invalidated from here; its term-list cache
+  // expires within 60 s. Repos shared with this process are refreshed now.
+  deps.categories.invalidate();
+  deps.tags.invalidate();
   return stats;
 }
 

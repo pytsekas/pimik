@@ -290,6 +290,27 @@ describe('admin routes', () => {
     });
   });
 
+  describe('public term lists', () => {
+    const categorySlugs = async () =>
+      (await request(app).get('/v1/categories')).body.map((term: { slug: string }) => term.slug);
+
+    it('reflect admin creates, updates and deletes at once', async () => {
+      await categories.upsert([{ slug: 'vinyl', name: 'Vinyl' }]);
+      expect(await categorySlugs()).toEqual([]);
+      const created = await request(app).post('/v1/admin/posts').set(bearer()).send(body());
+      expect(await categorySlugs()).toEqual(['vinyl']);
+      await request(app)
+        .put(`/v1/admin/posts/${created.body.id}`)
+        .set(bearer())
+        .send(body({ status: 'draft' }));
+      expect(await categorySlugs()).toEqual([]);
+      await request(app).put(`/v1/admin/posts/${created.body.id}`).set(bearer()).send(body());
+      expect(await categorySlugs()).toEqual(['vinyl']);
+      await request(app).delete(`/v1/admin/posts/${created.body.id}`).set(bearer());
+      expect(await categorySlugs()).toEqual([]);
+    });
+  });
+
   describe('DELETE /v1/admin/posts/:id', () => {
     it('removes the post and every photo', async () => {
       const post = await posts.create(

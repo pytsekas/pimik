@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { loadConfig } from '../config.ts';
 import { initFirebase } from '../firebase.ts';
 import { makePostInput } from '../test/factory.ts';
@@ -7,6 +7,12 @@ import { PostRepo } from './posts.ts';
 import { TermRepo } from './terms.ts';
 
 const PROJECT_ID = 'vinyl-rehab-local';
+const TEST_ENV = {
+  GCLOUD_PROJECT: PROJECT_ID,
+  BUCKET: 'vinyl-rehab-photos',
+  IMAGE_BASE_URL: 'http://localhost:4443/vinyl-rehab-photos',
+  ADMIN_EMAILS: 'admin@example.com',
+};
 
 describe('TermRepo', () => {
   let posts: PostRepo;
@@ -14,12 +20,7 @@ describe('TermRepo', () => {
   let tags: TermRepo;
 
   beforeAll(() => {
-    const config = loadConfig({
-      GCLOUD_PROJECT: PROJECT_ID,
-      BUCKET: 'vinyl-rehab-photos',
-      IMAGE_BASE_URL: 'http://localhost:4443/vinyl-rehab-photos',
-      ADMIN_EMAILS: 'admin@example.com',
-    });
+    const config = loadConfig(TEST_ENV);
     const { db } = initFirebase(config);
     posts = new PostRepo(db);
     categories = new TermRepo(db, 'categories');
@@ -87,5 +88,53 @@ describe('TermRepo', () => {
       { slug: 'ambient', name: 'Ambient', count: 1 },
       { slug: 'rock', name: 'Rock', count: 2 },
     ]);
+  });
+
+  describe('listNonEmpty cache', () => {
+    let clock: number;
+    let cached: TermRepo;
+
+    beforeEach(async () => {
+      clock = 1_000_000;
+      const { db } = initFirebase(loadConfig(TEST_ENV));
+      cached = new TermRepo(db, 'categories', { now: () => clock });
+      await cached.upsert([
+        { slug: 'vinyl', name: 'Vinyl' },
+        { slug: 'cassette', name: 'Cassette' },
+      ]);
+      await posts.create(makePostInput({ slug: 'v1', categorySlug: 'vinyl' }));
+    });
+
+    const slugs = async () => (await cached.listNonEmpty()).map((term) => term.slug);
+
+    it('answers repeated calls from memory for 60 s', async () => {
+      expect(await slugs()).toEqual(['vinyl']);
+      await posts.create(makePostInput({ slug: 'c1', categorySlug: 'cassette' }));
+      clock += 59_999;
+      expect(await slugs()).toEqual(['vinyl']);
+      clock += 1;
+      expect(await slugs()).toEqual(['cassette', 'vinyl']);
+    });
+
+    it('runs the count queries once for two calls', async () => {
+      const { db } = initFirebase(loadConfig(TEST_ENV));
+      const collection = vi.spyOn(db, 'collection');
+      await cached.listNonEmpty();
+      const queriesForOneCall = collection.mock.calls.length;
+      expect(queriesForOneCall).toBeGreaterThan(0);
+      await cached.listNonEmpty();
+      expect(collection.mock.calls.length).toBe(queriesForOneCall);
+      collection.mockRestore();
+    });
+
+    it('reloads after invalidate() and after upsert()', async () => {
+      expect(await slugs()).toEqual(['vinyl']);
+      await posts.create(makePostInput({ slug: 'c1', categorySlug: 'cassette' }));
+      cached.invalidate();
+      expect(await slugs()).toEqual(['cassette', 'vinyl']);
+      await cached.upsert([{ slug: 'tape', name: 'Tape' }]);
+      await posts.create(makePostInput({ slug: 't1', categorySlug: 'tape' }));
+      expect(await slugs()).toEqual(['cassette', 'tape', 'vinyl']);
+    });
   });
 });

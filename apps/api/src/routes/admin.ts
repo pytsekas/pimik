@@ -89,6 +89,7 @@ export function adminRouter(deps: AdminDeps): Router {
     try {
       const post = await deps.posts.create(resolved.fields);
       await upsertTerms(resolved);
+      invalidateTermLists();
       res.status(201).json(post);
     } catch (err) {
       throw translate(err);
@@ -107,6 +108,7 @@ export function adminRouter(deps: AdminDeps): Router {
     } catch (err) {
       throw translate(err);
     }
+    invalidateTermLists();
     const kept = new Set(post.photos.map((photo) => photo.id));
     await deletePhotos(before.photos.filter((photo) => !kept.has(photo.id)));
     res.json(post);
@@ -115,6 +117,7 @@ export function adminRouter(deps: AdminDeps): Router {
   router.delete('/posts/:id', async (req, res) => {
     const deleted = await deps.posts.delete(req.params.id);
     if (!deleted) throw postNotFound();
+    invalidateTermLists();
     await deletePhotos(deleted.photos);
     res.status(204).end();
   });
@@ -136,6 +139,12 @@ export function adminRouter(deps: AdminDeps): Router {
       deps.categories.upsert(resolved.categories),
       deps.tags.upsert(resolved.tags),
     ]);
+  }
+
+  /** Public category and tag lists depend on which posts are published. */
+  function invalidateTermLists(): void {
+    deps.categories.invalidate();
+    deps.tags.invalidate();
   }
 
   /**

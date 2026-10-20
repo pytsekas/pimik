@@ -119,7 +119,9 @@ is left exactly as it is, so edits, removed photos and an unpublished status sur
 existing post is updated from WordPress but keeps its current status (an unpublished post stays
 unpublished). Posts whose slug is already used by another post are skipped and logged; images that
 cannot be downloaded are logged and the post is imported without them. The last line printed is a
-JSON summary (`posts`, `photos`, `skipped`, `keptEdited`, `noPhotos`, `failedImages`).
+JSON summary (`posts`, `photos`, `skipped`, `keptEdited`, `noPhotos`, `failedImages`). A running api
+caches its public category and tag lists for 60 s, so after an import they may take up to a minute
+to show the new posts.
 
 `pnpm dev` keeps the data between runs: the Firebase emulators export to `.emulator-data/` when they
 stop (Ctrl+C) and import it on the next start, and fake-gcs stores objects in `.gcs-data/` (both are
