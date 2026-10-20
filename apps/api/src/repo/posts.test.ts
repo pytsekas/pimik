@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
+import type { Firestore } from 'firebase-admin/firestore';
 import { loadConfig } from '../config.ts';
 import { initFirebase } from '../firebase.ts';
 import { makePostInput } from '../test/factory.ts';
@@ -9,6 +10,7 @@ const PROJECT_ID = 'vinyl-rehab-local';
 
 describe('PostRepo', () => {
   let repo: PostRepo;
+  let db: Firestore;
 
   beforeAll(() => {
     const config = loadConfig({
@@ -17,7 +19,8 @@ describe('PostRepo', () => {
       IMAGE_BASE_URL: 'http://localhost:4443/vinyl-rehab-photos',
       ADMIN_EMAILS: 'admin@example.com',
     });
-    repo = new PostRepo(initFirebase(config).db);
+    db = initFirebase(config).db;
+    repo = new PostRepo(db);
   });
 
   beforeEach(async () => {
@@ -63,8 +66,10 @@ describe('PostRepo', () => {
     });
 
     it('breaks publishedAt ties by createdAt desc', async () => {
-      await repo.create(makePostInput({ slug: 'older', publishedAt: '2024-05-05' }));
-      await repo.create(makePostInput({ slug: 'newer', publishedAt: '2024-05-05' }));
+      const older = await repo.create(makePostInput({ slug: 'older', publishedAt: '2024-05-05' }));
+      const newer = await repo.create(makePostInput({ slug: 'newer', publishedAt: '2024-05-05' }));
+      await db.collection('posts').doc(older.id).update({ createdAt: '2024-05-05T10:00:00.000Z' });
+      await db.collection('posts').doc(newer.id).update({ createdAt: '2024-05-05T11:00:00.000Z' });
       const { items } = await repo.listPublished({ page: 1 });
       expect(items.map((post) => post.slug)).toEqual(['newer', 'older']);
     });
@@ -126,6 +131,12 @@ describe('PostRepo', () => {
       const updated = await repo.update(a.id, makePostInput({ slug: 'a', title: 'Renamed' }));
       expect(updated.title).toBe('Renamed');
       expect(updated.createdAt).toBe(a.createdAt);
+    });
+
+    it('keeps wpId when an update omits it', async () => {
+      const created = await repo.create(makePostInput({ slug: 'wp-keep', wpId: 123 }));
+      await repo.update(created.id, makePostInput({ slug: 'wp-keep', title: 'Edited' }));
+      expect((await repo.getByWpId(123))?.id).toBe(created.id);
     });
 
     it('finds posts with non-ASCII slugs', async () => {

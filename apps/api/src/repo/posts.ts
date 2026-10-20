@@ -107,6 +107,7 @@ export class PostRepo {
       }
       const post: Post = {
         ...input,
+        wpId: input.wpId ?? existing.wpId,
         id,
         createdAt: existing.createdAt,
         updatedAt: new Date().toISOString(),
