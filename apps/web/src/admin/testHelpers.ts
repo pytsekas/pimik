@@ -1,6 +1,8 @@
 import type { Photo, Post } from '@vinyl/shared';
 import { vi } from 'vite-plus/test';
+import { ref } from 'vue';
 import type { AdminApi, UploadSlot } from './adminApi.ts';
+import type { AdminContext } from './context.ts';
 
 /** Stands in for the browser's XMLHttpRequest; tests drive progress and completion by hand. */
 export class FakeXhr {
@@ -118,6 +120,10 @@ export function mockApi(uploadFile: AdminApi['uploadFile']) {
     completeUpload: vi.fn<AdminApi['completeUpload']>(async (photoId) => photo(photoId)),
     uploadFile,
   } satisfies AdminApi;
+}
+
+export function adminContext(api: AdminApi): AdminContext {
+  return { api, imageBaseUrl: 'http://img.test/b', unsaved: ref(false) };
 }
 
 /** Lets pending promise callbacks run. */

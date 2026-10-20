@@ -6,7 +6,7 @@ import { createMemoryHistory, RouterView, useRoute } from 'vue-router';
 import { AdminApiError, uploadFile } from './adminApi.ts';
 import { provideAdmin } from './context.ts';
 import { createAdminRouter } from './router.ts';
-import { FakeXhr, jpeg, mockApi, photo, post } from './testHelpers.ts';
+import { adminContext, FakeXhr, jpeg, mockApi, photo, post } from './testHelpers.ts';
 
 let api: ReturnType<typeof mockApi>;
 
@@ -21,6 +21,7 @@ afterEach(() => {
 });
 
 async function mountAt(path: string) {
+  const context = adminContext(api);
   const router = createAdminRouter(createMemoryHistory());
   await router.push(path);
   await router.isReady();
@@ -33,11 +34,11 @@ async function mountAt(path: string) {
   };
   const wrapper = mount(Shell, {
     global: {
-      plugins: [router, (app) => provideAdmin(app, { api, imageBaseUrl: 'http://img.test/b' })],
+      plugins: [router, (app) => provideAdmin(app, context)],
     },
   });
   await flushPromises();
-  return { wrapper, router };
+  return { wrapper, router, unsaved: context.unsaved };
 }
 
 const field = (wrapper: Awaited<ReturnType<typeof mountAt>>['wrapper'], name: string) =>
@@ -126,6 +127,9 @@ describe('PostForm (new post)', () => {
     });
     expect(router.currentRoute.value.fullPath).toBe('/admin/posts/new1/');
     expect(wrapper.text()).toContain('Saved');
+    // Cleared once shown, so a reload of /admin/posts/new1/ doesn't say "Saved" again.
+    expect(router.options.history.state.saved).toBe(false);
+    expect(router.options.history.location).toBe('/admin/posts/new1/');
   });
 
   it('sends a new category with its slug', async () => {
@@ -166,6 +170,23 @@ describe('PostForm (new post)', () => {
     expect(router.currentRoute.value.fullPath).toBe('/admin/posts/new/');
   });
 
+  it('resumes the auto address when a never-saved address is cleared', async () => {
+    const { wrapper } = await mountAt('/admin/posts/new/');
+    await field(wrapper, 'title').setValue('First');
+    await field(wrapper, 'slug').setValue('');
+    await field(wrapper, 'title').setValue('Second');
+    expect(value(wrapper, 'slug')).toBe('second');
+  });
+
+  it('reports unsaved changes to the admin context', async () => {
+    const { wrapper, unsaved } = await mountAt('/admin/posts/new/');
+    expect(unsaved.value).toBe(false);
+    await field(wrapper, 'title').setValue('Unsaved');
+    expect(unsaved.value).toBe(true);
+    wrapper.unmount();
+    expect(unsaved.value).toBe(false);
+  });
+
   it('asks before leaving with unsaved changes', async () => {
     const confirm = vi.fn(() => false);
     vi.stubGlobal('confirm', confirm);
@@ -203,6 +224,11 @@ describe('PostForm (existing post)', () => {
 
     await field(wrapper, 'title').setValue('david bowie – ★ (2)');
     expect(value(wrapper, 'slug')).toBe('david-bowie-★');
+    // A saved post's URL never follows the title, even after the address is cleared.
+    await field(wrapper, 'slug').setValue('');
+    await field(wrapper, 'title').setValue('david bowie – ★ (3)');
+    expect(value(wrapper, 'slug')).toBe('');
+    await field(wrapper, 'slug').setValue('david-bowie-★');
 
     await button(wrapper, 'Unpublish').trigger('click');
     await flushPromises();

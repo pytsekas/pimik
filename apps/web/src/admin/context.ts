@@ -1,8 +1,13 @@
-import { inject, type App, type InjectionKey } from 'vue';
+import { inject, type App, type InjectionKey, type Ref } from 'vue';
 import type { AdminApi } from './adminApi.ts';
 
 /** What every admin page needs; provided once by `startAdmin` (tests provide a mock api). */
-export type AdminContext = { api: AdminApi; imageBaseUrl: string };
+export type AdminContext = {
+  api: AdminApi;
+  imageBaseUrl: string;
+  /** True while the open post form has changes that are not saved; sign-out asks first. */
+  unsaved: Ref<boolean>;
+};
 
 const ADMIN_KEY: InjectionKey<AdminContext> = Symbol('admin');
 

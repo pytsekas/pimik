@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { authReady, forbidden, signIn, signOut, user } from './auth.ts';
+import { useAdmin } from './context.ts';
 
 defineProps<{ configError?: string }>();
 
+const { unsaved } = useAdmin();
+
 const signInError = ref('');
+
+async function onSignOut(): Promise<void> {
+  if (unsaved.value && !confirm('You have unsaved changes. Sign out anyway?')) return;
+  await signOut();
+}
 
 async function onSignIn(): Promise<void> {
   signInError.value = '';
@@ -25,7 +33,7 @@ async function onSignIn(): Promise<void> {
       <b>Vinyl Rehab admin</b>
       <span v-if="user && !forbidden" class="who">
         signed in as {{ user.email }} · <RouterLink to="/admin/">all posts</RouterLink> ·
-        <button type="button" class="link" @click="signOut">sign out</button>
+        <button type="button" class="link" @click="onSignOut">sign out</button>
       </span>
     </header>
 
@@ -37,7 +45,7 @@ async function onSignIn(): Promise<void> {
     </div>
     <div v-else-if="forbidden" class="gate">
       <p class="error" role="alert">This Google account is not allowed.</p>
-      <button type="button" class="b2" @click="signOut">Sign out</button>
+      <button type="button" class="b2" @click="onSignOut">Sign out</button>
     </div>
     <RouterView v-else :key="$route.fullPath" />
   </main>

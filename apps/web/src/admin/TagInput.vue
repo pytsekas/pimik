@@ -8,8 +8,11 @@ const emit = defineEmits<{ 'update:modelValue': [value: Term[]] }>();
 const MAX_SUGGESTIONS = 8;
 
 const text = ref('');
-/** Index into `matches` picked with the arrow keys; -1 means Enter adds the typed text. */
-const active = ref(-1);
+/**
+ * Highlighted index into `matches`, the one Enter adds; typing highlights the first match.
+ * -1 (after Escape) makes Enter add the typed text, as a comma always does.
+ */
+const active = ref(0);
 
 const chosen = computed(() => new Set(props.modelValue.map((tag) => tag.slug)));
 const matches = computed(() => {
@@ -42,7 +45,7 @@ function commit(tag?: Term): void {
   if (tag) add(tag);
   else addTyped();
   text.value = '';
-  active.value = -1;
+  active.value = 0;
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -64,7 +67,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function onInput(): void {
-  active.value = -1;
+  active.value = 0;
 }
 
 function remove(slug: string): void {

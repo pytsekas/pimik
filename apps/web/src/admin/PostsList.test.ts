@@ -6,18 +6,19 @@ import { uploadFile } from './adminApi.ts';
 import { provideAdmin } from './context.ts';
 import PostsList from './PostsList.vue';
 import { createAdminRouter } from './router.ts';
-import { mockApi, photo, post } from './testHelpers.ts';
+import { adminContext, mockApi, photo, post } from './testHelpers.ts';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 async function mountList(api: ReturnType<typeof mockApi>) {
+  const context = adminContext(api);
   const router = createAdminRouter(createMemoryHistory());
   await router.push('/admin/');
   const wrapper = mount(PostsList, {
     global: {
-      plugins: [router, (app) => provideAdmin(app, { api, imageBaseUrl: 'http://img.test/b' })],
+      plugins: [router, (app) => provideAdmin(app, context)],
     },
   });
   await flushPromises();

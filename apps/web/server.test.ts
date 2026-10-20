@@ -1,4 +1,10 @@
-import { createServer, get, type IncomingHttpHeaders, type Server } from 'node:http';
+import {
+  createServer,
+  get,
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type Server,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page, Post } from '@vinyl/shared';
 import request from 'supertest';
@@ -119,6 +125,53 @@ beforeAll(async () => {
     apiClient: fakeApi,
   });
 });
+
+/**
+ * POSTs `size` bytes to the admin proxy, chunked or with a content-length. Resolves once the
+ * response has ended and the whole body was sent (or the request failed), so nothing is
+ * still writing when the listener closes.
+ */
+async function rawPost(
+  size: number,
+  chunked: boolean,
+): Promise<{ status?: number; error?: string }> {
+  const server = web.app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address() as AddressInfo;
+  const body = Buffer.alloc(size, 120);
+  const result: { status?: number; error?: string } = {};
+  try {
+    await new Promise<void>((resolve) => {
+      let pending = 2;
+      const settle = () => (--pending === 0 ? resolve() : undefined);
+      const headers = chunked
+        ? { 'transfer-encoding': 'chunked' }
+        : { 'content-length': String(body.length) };
+      const req = httpRequest(
+        { host: '127.0.0.1', port, method: 'POST', path: '/v1/admin/posts', headers },
+        (res) => {
+          result.status = res.statusCode;
+          res.resume();
+          res.on('end', settle);
+        },
+      );
+      req.on('error', (error: NodeJS.ErrnoException) => {
+        result.error = error.code;
+        resolve();
+      });
+      req.on('finish', settle);
+      for (let start = 0; start < body.length; start += 65536) {
+        req.write(body.subarray(start, start + 65536));
+      }
+      req.end();
+    });
+    return result;
+  } finally {
+    // The client keeps the connection alive (as browsers do); don't wait for it to idle out.
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
 
 /** Sends the path byte-for-byte; supertest's URL parsing would turn `\\` into `/`. */
 async function rawGet(path: string): Promise<{ status: number; location?: string }> {
@@ -388,6 +441,17 @@ describe('web /v1/admin pass-through', () => {
       .set('Content-Type', 'application/json')
       .send(JSON.stringify({ text: 'x'.repeat(1024 * 1024) }));
     expect(res.status).toBe(413);
+    expect(upstreamDetails).toEqual([]);
+  });
+
+  it.each([
+    ['chunked', 1.1, true],
+    ['chunked', 20, true],
+    ['content-length', 1.1, false],
+    ['content-length', 20, false],
+  ] as const)('answers 413 to an over-cap %s body of %s MB', async (_kind, megabytes, chunked) => {
+    upstreamDetails.length = 0;
+    expect(await rawPost(Math.round(megabytes * 1024 * 1024), chunked)).toEqual({ status: 413 });
     expect(upstreamDetails).toEqual([]);
   });
 

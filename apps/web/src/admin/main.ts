@@ -1,4 +1,4 @@
-import { createApp } from 'vue';
+import { createApp, ref } from 'vue';
 import { createWebHistory } from 'vue-router';
 import AdminApp from './AdminApp.vue';
 import { createAdminApi } from './adminApi.ts';
@@ -24,6 +24,10 @@ export function startAdmin(): void {
   });
   const app = createApp(AdminApp, { configError });
   app.use(createAdminRouter(createWebHistory()));
-  provideAdmin(app, { api, imageBaseUrl: window.__ADMIN_CONFIG__?.imageBaseUrl ?? '' });
+  provideAdmin(app, {
+    api,
+    imageBaseUrl: window.__ADMIN_CONFIG__?.imageBaseUrl ?? '',
+    unsaved: ref(false),
+  });
   app.mount('#app');
 }

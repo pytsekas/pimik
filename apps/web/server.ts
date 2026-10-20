@@ -128,16 +128,32 @@ function isAdminApiRequest(req: Request, target: URL): boolean {
   );
 }
 
-/** Reads the request body, or returns null once it exceeds `maxBytes`. */
-async function readRequestCapped(req: Request, maxBytes: number): Promise<Buffer | null> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).byteLength;
-    if (size > maxBytes) return null;
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks);
+/**
+ * Reads the request body, or resolves null as soon as it exceeds `maxBytes`. The rest is then
+ * drained and discarded (not destroyed), so the client finishes sending and receives the 413.
+ */
+function readRequestCapped(req: Request, maxBytes: number): Promise<Buffer | null> {
+  return new Promise((resolve, reject) => {
+    const overCap = () => {
+      req.off('data', onData);
+      req.resume();
+      resolve(null);
+    };
+    if (Number(req.headers['content-length'] ?? 0) > maxBytes) {
+      overCap();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    function onData(chunk: Buffer): void {
+      size += chunk.byteLength;
+      if (size > maxBytes) overCap();
+      else chunks.push(chunk);
+    }
+    req.on('data', onData);
+    req.once('end', () => resolve(Buffer.concat(chunks)));
+    req.once('error', reject);
+  });
 }
 
 /** Forwards public api reads and admin calls so the browser can use same-origin `/v1`. */

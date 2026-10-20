@@ -20,7 +20,7 @@ import TagInput from './TagInput.vue';
 import { useUploads } from './useUploads.ts';
 
 const props = defineProps<{ id?: string }>();
-const { api, imageBaseUrl } = useAdmin();
+const { api, imageBaseUrl, unsaved } = useAdmin();
 const router = useRouter();
 const uploads = useUploads(api);
 
@@ -42,7 +42,13 @@ const cleanSnapshot = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const snapshot = () => JSON.stringify([form.value, uploads.items.value.map((item) => item.id)]);
-const dirty = computed(() => uploads.busy.value || snapshot() !== cleanSnapshot.value);
+/** Nothing to lose until the form has loaded. */
+const dirty = computed(
+  () =>
+    !loading.value &&
+    !loadError.value &&
+    (uploads.busy.value || snapshot() !== cleanSnapshot.value),
+);
 const disabled = computed(() => loading.value || saving.value || uploads.busy.value);
 const address = computed(() => `/${categorySlugOf(form.value) || '…'}/${form.value.slug || '…'}/`);
 
@@ -56,8 +62,9 @@ watch(dirty, (isDirty) => {
   if (isDirty) savedNotice.value = false;
 });
 
+/** Clearing the address resumes auto mode, but only before the post's URL has ever existed. */
 function onSlugInput(): void {
-  slugEdited.value = form.value.slug !== '';
+  slugEdited.value = props.id !== undefined || form.value.slug !== '';
   slugError.value = '';
 }
 
@@ -83,7 +90,7 @@ onMounted(async () => {
       form.value = emptyForm(loadedCategories);
     }
     markClean();
-    savedNotice.value = router.options.history.state.saved === true;
+    showSavedFromCreate();
   } catch (err) {
     loadError.value =
       err instanceof AdminApiError && err.status === 404 ? 'Post not found.' : 'Could not load.';
@@ -91,6 +98,14 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+/** "Saved" after a create redirect; the flag is cleared so a reload doesn't show it again. */
+function showSavedFromCreate(): void {
+  const history = router.options.history;
+  if (history.state.saved !== true) return;
+  savedNotice.value = true;
+  history.replace(router.currentRoute.value.fullPath, { ...history.state, saved: false });
+}
 
 function addFiles(files: FileList | null | undefined): void {
   if (files && files.length > 0) uploads.addFiles([...files]);
@@ -156,6 +171,9 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
 }
 window.addEventListener('beforeunload', onBeforeUnload);
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload));
+
+watch(dirty, (isDirty) => (unsaved.value = isDirty), { immediate: true });
+onBeforeUnmount(() => (unsaved.value = false));
 </script>
 
 <template>
