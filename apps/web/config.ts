@@ -4,8 +4,11 @@ const schema = z.object({
   API_URL: z.url(),
   IMAGE_BASE_URL: z.url(),
   WEB_PORT: z.coerce.number().int().positive().default(3000),
-  SITE_URL: z.url().default('http://localhost:3000'),
+  SITE_URL: z.url().optional(),
+  NODE_ENV: z.string().optional(),
 });
+
+const DEV_SITE_URL = 'http://localhost:3000';
 
 export type WebConfig = {
   apiUrl: string;
@@ -23,10 +26,13 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): WebConfig {
     throw new Error(`Invalid configuration, check: ${invalid}`);
   }
   const values = parsed.data;
+  if (values.SITE_URL === undefined && values.NODE_ENV === 'production') {
+    throw new Error('Invalid configuration, check: SITE_URL (required in production)');
+  }
   return {
     apiUrl: trimSlash(values.API_URL),
     imageBaseUrl: trimSlash(values.IMAGE_BASE_URL),
     port: values.WEB_PORT,
-    siteUrl: trimSlash(values.SITE_URL),
+    siteUrl: trimSlash(values.SITE_URL ?? DEV_SITE_URL),
   };
 }

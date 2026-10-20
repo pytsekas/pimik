@@ -61,20 +61,20 @@ Google account is not allowed".
 
 ### Environment variables
 
-| Variable                      | Used by            | Meaning                                                                                                            |
-| ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `GCLOUD_PROJECT`              | api, importer      | Firebase project id (`vinyl-rehab-local` locally)                                                                  |
-| `FIRESTORE_EMULATOR_HOST`     | api, importer      | Firestore emulator `host:port`; unset in production                                                                |
-| `FIREBASE_AUTH_EMULATOR_HOST` | api                | Auth emulator `host:port`; unset in production                                                                     |
-| `STORAGE_EMULATOR_HOST`       | api, importer      | fake-gcs URL; unset in production (real Cloud Storage)                                                             |
-| `BUCKET`                      | api, importer      | Photo bucket name                                                                                                  |
-| `IMAGE_BASE_URL`              | api, web, importer | Public base URL of the bucket, used to build photo URLs                                                            |
-| `ADMIN_EMAILS`                | api                | Comma-separated emails allowed into the admin; everyone else gets 403                                              |
-| `API_PORT`                    | api                | Listen port, default 3001                                                                                          |
-| `API_URL`                     | web                | Where the web server reaches the api                                                                               |
-| `WEB_PORT`                    | web                | Listen port, default 3000                                                                                          |
-| `SITE_URL`                    | web                | Public site URL (feed, sitemap, canonical links), default `http://localhost:3000`; set it together with `WEB_PORT` |
-| `WP_BASE_URL`                 | importer           | Optional, defaults to `https://vinyl.rehab`                                                                        |
+| Variable                      | Used by            | Meaning                                                                                                                                        |
+| ----------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GCLOUD_PROJECT`              | api, importer      | Firebase project id (`vinyl-rehab-local` locally)                                                                                              |
+| `FIRESTORE_EMULATOR_HOST`     | api, importer      | Firestore emulator `host:port`; the api refuses to start with it when `NODE_ENV=production`                                                    |
+| `FIREBASE_AUTH_EMULATOR_HOST` | api                | Auth emulator `host:port`; the api refuses to start with it when `NODE_ENV=production`                                                         |
+| `STORAGE_EMULATOR_HOST`       | api, importer      | fake-gcs URL; the api refuses to start with it when `NODE_ENV=production`                                                                      |
+| `BUCKET`                      | api, importer      | Photo bucket name                                                                                                                              |
+| `IMAGE_BASE_URL`              | api, web, importer | Public base URL of the bucket, used to build photo URLs                                                                                        |
+| `ADMIN_EMAILS`                | api                | Comma-separated emails allowed into the admin; everyone else gets 403                                                                          |
+| `API_PORT`                    | api                | Listen port, default 3001                                                                                                                      |
+| `API_URL`                     | web                | Where the web server reaches the api                                                                                                           |
+| `WEB_PORT`                    | web                | Listen port, default 3000                                                                                                                      |
+| `SITE_URL`                    | web                | Public site URL (feed, sitemap, canonical links), default `http://localhost:3000`, required when `NODE_ENV=production`; set it with `WEB_PORT` |
+| `WP_BASE_URL`                 | importer           | Optional, defaults to `https://vinyl.rehab`                                                                                                    |
 
 The `VITE_FIREBASE_*` variables configure Firebase Auth in the admin UI (`/admin/`). Vite builds
 them into the browser bundle from the process environment, so they must be set when the web app

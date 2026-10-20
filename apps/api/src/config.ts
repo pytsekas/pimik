@@ -17,6 +17,13 @@ const envSchema = z.object({
   STORAGE_EMULATOR_HOST: z.string().min(1).optional(),
 });
 
+/** With any of these set, firebase-admin and the bucket client talk to local emulators. */
+const EMULATOR_HOSTS = [
+  'FIREBASE_AUTH_EMULATOR_HOST',
+  'FIRESTORE_EMULATOR_HOST',
+  'STORAGE_EMULATOR_HOST',
+] as const;
+
 export type Config = {
   port: number;
   projectId: string;
@@ -27,6 +34,12 @@ export type Config = {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  if (env.NODE_ENV === 'production') {
+    const emulators = EMULATOR_HOSTS.filter((name) => env[name]);
+    if (emulators.length > 0) {
+      throw new Error(`Emulator hosts must not be set in production: ${emulators.join(', ')}`);
+    }
+  }
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
     const missing = parsed.error.issues.map((issue) => issue.path.join('.')).join(', ');
@@ -37,7 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: values.API_PORT,
     projectId: values.GCLOUD_PROJECT,
     bucket: values.BUCKET,
-    imageBaseUrl: values.IMAGE_BASE_URL,
+    imageBaseUrl: values.IMAGE_BASE_URL.replace(/\/+$/, ''),
     adminEmails: values.ADMIN_EMAILS,
   };
   if (values.STORAGE_EMULATOR_HOST) {
