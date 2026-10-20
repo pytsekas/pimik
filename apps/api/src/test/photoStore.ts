@@ -11,7 +11,6 @@ export function stubPhotoStore(overrides: Partial<PhotoStorage> = {}): PhotoStor
     size: unexpected('size'),
     read: unexpected('read'),
     write: unexpected('write'),
-    markCacheable: unexpected('markCacheable'),
     deleteObject: unexpected('deleteObject'),
     deletePhoto: async () => {},
     ...overrides,

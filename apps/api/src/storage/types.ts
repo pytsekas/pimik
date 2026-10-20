@@ -16,7 +16,5 @@ export type PhotoStorage = PhotoDeleter & {
   size(path: string): Promise<number | null>;
   read(path: string): Promise<Buffer>;
   write(path: string, data: Buffer, contentType: string): Promise<void>;
-  /** Applies the long-lived cache header to an object uploaded by the browser. */
-  markCacheable(path: string): Promise<void>;
   deleteObject(path: string): Promise<void>;
 };

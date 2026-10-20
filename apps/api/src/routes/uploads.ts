@@ -1,15 +1,15 @@
-import { variantPaths, type Photo } from '@vinyl/shared';
+import { PHOTO_ID_PATTERN, variantPaths, type Photo } from '@vinyl/shared';
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { HttpError } from '../errors.ts';
-import { makeVariants } from '../images/variants.ts';
+import { sanitizeOriginal } from '../images/sanitizeOriginal.ts';
+import { InvalidImageError, makeVariants } from '../images/variants.ts';
 import type { PhotoStorage, UploadTarget } from '../storage/types.ts';
 
 export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const MAX_FILES = 50;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const PHOTO_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const UploadRequest = z.object({
   files: z
@@ -28,7 +28,11 @@ export type UploadResult =
   | { photoId: string; objectPath: string; upload: UploadTarget }
   | { fileName: string; error: 'unsupported_type' | 'too_large' };
 
-export type UploadsDeps = { photoStore: PhotoStorage; maxUploadBytes?: number };
+export type UploadsDeps = {
+  photoStore: PhotoStorage;
+  maxUploadBytes?: number;
+  maxInputPixels?: number;
+};
 
 /** Routes for direct-to-bucket uploads; the caller mounts them behind requireAdmin. */
 export function uploadsRouter(deps: UploadsDeps): Router {
@@ -58,7 +62,7 @@ export function uploadsRouter(deps: UploadsDeps): Router {
 
   router.post('/:photoId/complete', async (req, res) => {
     const { photoId } = req.params;
-    if (!PHOTO_ID.test(photoId)) {
+    if (!PHOTO_ID_PATTERN.test(photoId)) {
       throw new HttpError(400, 'invalid_photo_id', 'Invalid photo id');
     }
     const paths = variantPaths(photoId);
@@ -68,20 +72,27 @@ export function uploadsRouter(deps: UploadsDeps): Router {
       await store.deleteObject(paths.original);
       throw new HttpError(422, 'too_large', 'File is too large');
     }
-    const variants = await decode(await store.read(paths.original), paths.original);
+    const processed = await prepare(await store.read(paths.original), paths.original);
     await Promise.all([
-      store.write(paths.w1000, variants.w1000, 'image/jpeg'),
-      store.write(paths.w300, variants.w300, 'image/jpeg'),
-      store.markCacheable(paths.original),
+      store.write(paths.original, processed.original.data, processed.original.contentType),
+      store.write(paths.w1000, processed.variants.w1000, 'image/jpeg'),
+      store.write(paths.w300, processed.variants.w300, 'image/jpeg'),
     ]);
-    const photo: Photo = { id: photoId, width: variants.width, height: variants.height, paths };
+    const { width, height } = processed.original;
+    const photo: Photo = { id: photoId, width, height, paths };
     res.json(photo);
   });
 
-  async function decode(original: Buffer, path: string): ReturnType<typeof makeVariants> {
+  /** Strips metadata and builds variants; a bad image is deleted, any other failure becomes a 500. */
+  async function prepare(raw: Buffer, path: string) {
+    const limits = { limitInputPixels: deps.maxInputPixels };
     try {
-      return await makeVariants(original);
-    } catch {
+      const original = await sanitizeOriginal(raw, limits);
+      const variants = await makeVariants(original.data, limits);
+      return { original, variants };
+    } catch (err) {
+      if (!(err instanceof InvalidImageError)) throw err;
+      console.error(`Rejected upload ${path}`, err.message);
       await store.deleteObject(path);
       throw new HttpError(422, 'not_an_image', 'File is not a decodable image');
     }

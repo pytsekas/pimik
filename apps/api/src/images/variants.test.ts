@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vite-plus/test';
 import { jpeg } from '../test/images.ts';
-import { makeVariants } from './variants.ts';
+import { InvalidImageError, makeVariants } from './variants.ts';
 
 async function dimensions(data: Buffer) {
   const { width, height, format } = await sharp(data).metadata();
@@ -31,6 +31,14 @@ describe('makeVariants', () => {
   });
 
   it('rejects data that is not an image', async () => {
-    await expect(makeVariants(Buffer.from('definitely not an image'))).rejects.toThrow();
+    await expect(makeVariants(Buffer.from('definitely not an image'))).rejects.toThrow(
+      InvalidImageError,
+    );
+  });
+
+  it('rejects an image over the pixel limit', async () => {
+    await expect(makeVariants(await jpeg(600, 400), { limitInputPixels: 1000 })).rejects.toThrow(
+      InvalidImageError,
+    );
   });
 });

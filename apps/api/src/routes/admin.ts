@@ -1,4 +1,12 @@
-import { PostInput, slugify, variantPaths, type Photo, type Post, type Term } from '@vinyl/shared';
+import {
+  PHOTO_ID_PATTERN,
+  PostInput,
+  slugify,
+  variantPaths,
+  type Photo,
+  type Post,
+  type Term,
+} from '@vinyl/shared';
 import type { Auth } from 'firebase-admin/auth';
 import { Router } from 'express';
 import type { Config } from '../config.ts';
@@ -22,9 +30,8 @@ export type AdminDeps = {
   tags: TermRepo;
   photoStore: PhotoStorage;
   maxUploadBytes?: number;
+  maxInputPixels?: number;
 };
-
-const PHOTO_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 const postNotFound = () => new HttpError(404, 'not_found', 'Post not found');
 
@@ -36,7 +43,7 @@ function parseInput(raw: unknown): Resolved {
     throw new HttpError(400, 'invalid_input', 'Invalid input', { issues: parsed.error.issues });
   }
   const { categoryName, tagNames, categorySlug, tagSlugs, photos, ...rest } = parsed.data;
-  const badPhoto = photos.find((photo) => !PHOTO_ID.test(photo.id));
+  const badPhoto = photos.find((photo) => !PHOTO_ID_PATTERN.test(photo.id));
   if (badPhoto) {
     throw new HttpError(400, 'invalid_photo_id', 'Photo ids may only use letters, digits, - and _');
   }

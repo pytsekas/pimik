@@ -2,7 +2,8 @@ import { variantPaths, type Photo } from '@vinyl/shared';
 import type { Auth } from 'firebase-admin/auth';
 import type { Express } from 'express';
 import request from 'supertest';
-import { beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
+import sharp from 'sharp';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createApp } from '../app.ts';
 import { loadConfig } from '../config.ts';
 import { initFirebase } from '../firebase.ts';
@@ -10,7 +11,7 @@ import { PhotoIndexRepo } from '../repo/photoIndex.ts';
 import { PostRepo } from '../repo/posts.ts';
 import { TermRepo } from '../repo/terms.ts';
 import { PhotoStore } from '../storage/bucket.ts';
-import { jpeg } from '../test/images.ts';
+import { jpeg, jpegWithGps } from '../test/images.ts';
 import { getIdToken, resetAuthEmulator } from '../test/idToken.ts';
 
 const PROJECT_ID = 'vinyl-rehab-local';
@@ -51,10 +52,12 @@ describe('upload routes', () => {
       auth,
       photoStore: store,
       maxUploadBytes: 1 * MB,
+      maxInputPixels: 4_000_000,
     });
   });
 
   beforeEach(async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     await resetAuthEmulator(PROJECT_ID);
     idToken = await getIdToken(auth, ADMIN_EMAIL);
   });
@@ -110,8 +113,7 @@ describe('upload routes', () => {
       expect((await store.read(path)).length).toBeGreaterThan(0);
       expect((await fetch(store.publicUrl(path))).status).toBe(200);
     }
-    // fake-gcs-server ignores cacheControl on metadata PATCH, so only written variants are checked.
-    for (const path of [photo.paths.w1000, photo.paths.w300]) {
+    for (const path of Object.values(photo.paths)) {
       const publicRes = await fetch(store.publicUrl(path));
       expect(publicRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
       expect(publicRes.headers.get('content-type')).toBe('image/jpeg');
@@ -143,6 +145,42 @@ describe('upload routes', () => {
     }
     const res = await request(app).post('/v1/admin/uploads').set(bearer()).send({});
     expect(res.status).toBe(400);
+  });
+
+  it('answers 422 not_an_image and deletes the object when the image exceeds the pixel limit', async () => {
+    const target = await uploadAs(await jpeg(2400, 2400));
+    const res = await complete(target.photoId);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe('not_an_image');
+    expect(await store.size(target.objectPath)).toBeNull();
+  });
+
+  it('strips EXIF and GPS from the stored original without touching the pixels', async () => {
+    const input = await jpegWithGps(800, 600);
+    expect((await sharp(input).metadata()).exif).toBeDefined();
+    const target = await uploadAs(input);
+
+    const res = await complete(target.photoId);
+
+    expect(res.status).toBe(200);
+    const stored = await store.read(target.objectPath);
+    expect((await sharp(stored).metadata()).exif).toBeUndefined();
+    expect(stored.includes(Buffer.from('Exif'))).toBe(false);
+    const raw = (data: Buffer) => sharp(data).raw().toBuffer();
+    expect((await raw(stored)).equals(await raw(input))).toBe(true);
+  });
+
+  it('stores a rotated upload upright and reports the upright size', async () => {
+    const target = await uploadAs(await jpegWithGps(2000, 1000, 6));
+
+    const res = await complete(target.photoId);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ width: 1000, height: 2000 });
+    const meta = await sharp(await store.read(target.objectPath)).metadata();
+    expect(meta).toMatchObject({ width: 1000, height: 2000 });
+    expect(meta.exif).toBeUndefined();
+    expect(meta.orientation).toBeUndefined();
   });
 
   it('answers 422 not_an_image and deletes the object when the bytes are not an image', async () => {

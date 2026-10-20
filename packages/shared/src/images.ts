@@ -22,3 +22,6 @@ export function pickVariant(requestedWidth?: number): VariantName {
   if (requestedWidth <= 1000) return 'w1000';
   return 'original';
 }
+
+/** Photo ids appear in storage paths, so only path-safe characters are allowed. */
+export const PHOTO_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;

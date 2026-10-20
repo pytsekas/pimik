@@ -18,6 +18,7 @@ export type AppDeps = {
   auth: Auth;
   photoStore: PhotoStorage;
   maxUploadBytes?: number;
+  maxInputPixels?: number;
 };
 
 export function createApp(deps: AppDeps): Express {

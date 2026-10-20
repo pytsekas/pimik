@@ -1,8 +1,11 @@
 import { Storage, type Bucket } from '@google-cloud/storage';
 import type { Config } from '../config.ts';
+import { silenceStorageStreamWarning } from './quietStreamWarnings.ts';
 import type { PhotoStorage, UploadTarget } from './types.ts';
 
 export const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+silenceStorageStreamWarning();
+
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 
 /** Photo objects in GCS, or in fake-gcs-server when STORAGE_EMULATOR_HOST is set. */
@@ -50,8 +53,11 @@ export class PhotoStore implements PhotoStorage {
   }
 
   async read(path: string): Promise<Buffer> {
-    const [data] = await this.bucket.file(path).download();
-    return data;
+    const chunks: Buffer[] = [];
+    for await (const chunk of this.bucket.file(path).createReadStream()) {
+      chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks);
   }
 
   async write(path: string, data: Buffer, contentType: string): Promise<void> {
@@ -59,10 +65,6 @@ export class PhotoStore implements PhotoStorage {
       resumable: false,
       metadata: { contentType, cacheControl: CACHE_CONTROL },
     });
-  }
-
-  async markCacheable(path: string): Promise<void> {
-    await this.bucket.file(path).setMetadata({ cacheControl: CACHE_CONTROL });
   }
 
   async deleteObject(path: string): Promise<void> {
