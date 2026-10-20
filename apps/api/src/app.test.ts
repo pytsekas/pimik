@@ -17,13 +17,15 @@ const baseEnv = {
 describe('GET /health', () => {
   it('returns ok', async () => {
     const config = loadConfig(baseEnv);
-    const { db } = initFirebase(config);
+    const { db, auth } = initFirebase(config);
     const app = createApp({
       config,
       posts: new PostRepo(db),
       categories: new TermRepo(db, 'categories'),
       tags: new TermRepo(db, 'tags'),
       photoIndex: new PhotoIndexRepo(db),
+      auth,
+      photoStore: { deletePhoto: async () => {} },
     });
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);

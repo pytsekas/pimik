@@ -27,12 +27,20 @@ describe('public routes', () => {
       IMAGE_BASE_URL,
       ADMIN_EMAILS: 'admin@example.com',
     });
-    const { db } = initFirebase(config);
+    const { db, auth } = initFirebase(config);
     posts = new PostRepo(db);
     categories = new TermRepo(db, 'categories');
     tags = new TermRepo(db, 'tags');
     photoIndex = new PhotoIndexRepo(db);
-    app = createApp({ config, posts, categories, tags, photoIndex });
+    app = createApp({
+      config,
+      posts,
+      categories,
+      tags,
+      photoIndex,
+      auth,
+      photoStore: { deletePhoto: async () => {} },
+    });
   });
 
   beforeEach(async () => {

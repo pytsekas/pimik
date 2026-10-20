@@ -6,13 +6,16 @@ import { PostRepo } from './repo/posts.ts';
 import { TermRepo } from './repo/terms.ts';
 
 const config = loadConfig();
-const { db } = initFirebase(config);
+const { db, auth } = initFirebase(config);
 const app = createApp({
   config,
   posts: new PostRepo(db),
   categories: new TermRepo(db, 'categories'),
   tags: new TermRepo(db, 'tags'),
   photoIndex: new PhotoIndexRepo(db),
+  auth,
+  // Replaced by the real PhotoStore once uploads land.
+  photoStore: { deletePhoto: async () => {} },
 });
 
 app.listen(config.port, () => {
