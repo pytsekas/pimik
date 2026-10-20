@@ -80,12 +80,13 @@ describe('admin routes', () => {
     it('rejects a missing token with 401', async () => {
       const res = await request(app).get('/v1/admin/posts');
       expect(res.status).toBe(401);
-      expect(res.body).toEqual({ error: 'unauthorized' });
+      expect(res.body).toEqual({ error: 'unauthorized', message: 'Unauthorized' });
     });
 
     it('rejects a malformed token with 401', async () => {
       const res = await request(app).get('/v1/admin/posts').set('Authorization', 'Bearer junk');
       expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: 'unauthorized', message: 'Unauthorized' });
     });
 
     it('rejects a non-allowlisted email with 403', async () => {
@@ -94,7 +95,7 @@ describe('admin routes', () => {
         .get('/v1/admin/posts')
         .set('Authorization', `Bearer ${stranger}`);
       expect(res.status).toBe(403);
-      expect(res.body).toEqual({ error: 'forbidden' });
+      expect(res.body).toEqual({ error: 'forbidden', message: 'Forbidden' });
     });
 
     it('rejects an allowlisted but unverified email with 403', async () => {
@@ -149,6 +150,46 @@ describe('admin routes', () => {
       expect(cats.body).toContainEqual({ slug: 'tape-loops', name: 'Tape Loops' });
       const tagList = await request(app).get('/v1/admin/tags').set(bearer());
       expect(tagList.body).toContainEqual({ slug: 'drone-music', name: 'Drone Music' });
+    });
+
+    it('does not rename existing terms when their names are typed again', async () => {
+      await categories.upsert([{ slug: 'vinyl', name: 'Vinyl' }]);
+      await tags.upsert([{ slug: 'drone-music', name: 'Drone Music' }]);
+      const res = await request(app)
+        .post('/v1/admin/posts')
+        .set(bearer())
+        .send(body({ categoryName: 'VINYL', tagNames: ['drone music', 'New Tag'] }));
+      expect(res.status).toBe(201);
+      expect(res.body.categorySlug).toBe('vinyl');
+      expect(await categories.get('vinyl')).toEqual({ slug: 'vinyl', name: 'Vinyl' });
+      expect(await tags.get('drone-music')).toEqual({ slug: 'drone-music', name: 'Drone Music' });
+      expect(await tags.get('new-tag')).toEqual({ slug: 'new-tag', name: 'New Tag' });
+    });
+
+    it.each([{ categoryName: '★' }, { tagNames: ['ok', '★'] }])(
+      'rejects a name without a usable slug (%o) before writing anything',
+      async (names) => {
+        await categories.upsert([{ slug: 'vinyl', name: 'Vinyl' }]);
+        const res = await request(app).post('/v1/admin/posts').set(bearer()).send(body(names));
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('invalid_input');
+        expect(res.body.issues[0].message).toBe('Needs at least one letter or digit');
+        expect(await posts.listAll()).toEqual([]);
+        expect(await tags.listAll()).toEqual([]);
+      },
+    );
+
+    it('writes no post when saving its new terms fails', async () => {
+      const failing = vi.spyOn(tags, 'addMissing').mockRejectedValueOnce(new Error('db down'));
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await request(app)
+        .post('/v1/admin/posts')
+        .set(bearer())
+        .send(body({ categoryName: 'Vinyl', tagNames: ['Drone'] }));
+      expect(res.status).toBe(500);
+      expect(await posts.listAll()).toEqual([]);
+      failing.mockRestore();
+      errorSpy.mockRestore();
     });
 
     it('rejects an unknown categorySlug with 400 unknown_category', async () => {
@@ -245,6 +286,21 @@ describe('admin routes', () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ wpId: 7, importedAt: post.importedAt });
       expect(res.body.updatedAt > post.importedAt!).toBe(true);
+    });
+
+    it('writes no change when saving new terms fails', async () => {
+      const post = await seedThreePhotos();
+      const failing = vi.spyOn(categories, 'addMissing').mockRejectedValueOnce(new Error('down'));
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await request(app)
+        .put(`/v1/admin/posts/${post.id}`)
+        .set(bearer())
+        .send(body({ slug: 'three', title: 'Changed', categoryName: 'Tapes' }));
+      expect(res.status).toBe(500);
+      expect((await posts.getById(post.id))?.title).toBe('Post');
+      expect(deletePhoto).not.toHaveBeenCalled();
+      failing.mockRestore();
+      errorSpy.mockRestore();
     });
 
     it('returns 409 on slug clash and deletes nothing', async () => {

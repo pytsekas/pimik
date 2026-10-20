@@ -38,6 +38,19 @@ describe('TermRepo', () => {
     expect(await categories.get('missing')).toBeNull();
   });
 
+  it('adds only missing terms and keeps existing names', async () => {
+    await tags.upsert([{ slug: 'ambient', name: 'Ambient' }]);
+    await tags.addMissing([
+      { slug: 'ambient', name: 'AMBIENT' },
+      { slug: 'drone', name: 'Drone' },
+    ]);
+    expect(await tags.listAll()).toEqual([
+      { slug: 'ambient', name: 'Ambient' },
+      { slug: 'drone', name: 'Drone' },
+    ]);
+    await tags.addMissing([]);
+  });
+
   it('lists all terms sorted by name', async () => {
     await categories.upsert([
       { slug: 'b', name: 'Beta' },

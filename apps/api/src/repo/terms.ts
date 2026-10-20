@@ -36,6 +36,14 @@ export class TermRepo {
     }
   }
 
+  /** Creates the terms that do not exist yet; existing terms keep their names. */
+  async addMissing(terms: Term[]): Promise<void> {
+    const unique = [...new Map(terms.map((term) => [term.slug, term])).values()];
+    if (unique.length === 0) return;
+    const docs = await this.db.getAll(...unique.map((term) => this.docRef(term.slug)));
+    await this.upsert(unique.filter((_term, index) => !docs[index]?.exists));
+  }
+
   async get(slug: string): Promise<Term | null> {
     const doc = await this.docRef(slug).get();
     return doc.exists ? toTerm(doc.data() ?? {}) : null;

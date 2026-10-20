@@ -118,6 +118,7 @@ const FIELD_LABELS: Record<string, string> = {
   title: 'title',
   categorySlug: 'category',
   categoryName: 'category',
+  tagNames: 'tags',
   discogsUrl: 'Discogs link',
   publishedAt: 'date',
   photos: 'photos',

@@ -12,19 +12,19 @@ export function requireAdmin(auth: Auth, adminEmails: string[]): RequestHandler 
   return async (req, res, next) => {
     const idToken = BEARER.exec(req.headers.authorization ?? '')?.[1];
     if (!idToken) {
-      res.status(401).json({ error: 'unauthorized' });
+      res.status(401).json({ error: 'unauthorized', message: 'Unauthorized' });
       return;
     }
     let decoded;
     try {
       decoded = await auth.verifyIdToken(idToken);
     } catch {
-      res.status(401).json({ error: 'unauthorized' });
+      res.status(401).json({ error: 'unauthorized', message: 'Unauthorized' });
       return;
     }
     const email = decoded.email?.toLowerCase();
     if (decoded.email_verified !== true || email === undefined || !allowed.has(email)) {
-      res.status(403).json({ error: 'forbidden' });
+      res.status(403).json({ error: 'forbidden', message: 'Forbidden' });
       return;
     }
     next();

@@ -47,11 +47,9 @@ function parseInput(raw: unknown): Resolved {
   if (badPhoto) {
     throw new HttpError(400, 'invalid_photo_id', 'Photo ids may only use letters, digits, - and _');
   }
-  const categories: Term[] = [];
-  if (categoryName !== undefined) {
-    categories.push({ slug: slugify(categoryName), name: categoryName });
-  }
-  const tags: Term[] = (tagNames ?? []).map((name) => ({ slug: slugify(name), name }));
+  const categories: Term[] =
+    categoryName === undefined ? [] : [termOf(categoryName, ['categoryName'])];
+  const tags: Term[] = (tagNames ?? []).map((name, index) => termOf(name, ['tagNames', index]));
   const fields: PostFields = {
     ...rest,
     categorySlug: categories[0]?.slug ?? categorySlug,
@@ -59,6 +57,17 @@ function parseInput(raw: unknown): Resolved {
     photos: photos.map((photo): Photo => ({ ...photo, paths: variantPaths(photo.id) })),
   };
   return { fields, categories, tags };
+}
+
+/** A new term from a typed name; names without letters or digits (e.g. "★") have no slug. */
+function termOf(name: string, path: (string | number)[]): Term {
+  const slug = slugify(name);
+  if (slug === '') {
+    throw new HttpError(400, 'invalid_input', 'Invalid input', {
+      issues: [{ path, message: 'Needs at least one letter or digit' }],
+    });
+  }
+  return { slug, name };
 }
 
 export function adminRouter(deps: AdminDeps): Router {
@@ -87,8 +96,8 @@ export function adminRouter(deps: AdminDeps): Router {
   router.post('/posts', async (req, res) => {
     const resolved = await prepare(req.body);
     try {
+      await addTerms(resolved);
       const post = await deps.posts.create(resolved.fields);
-      await upsertTerms(resolved);
       invalidateTermLists();
       res.status(201).json(post);
     } catch (err) {
@@ -103,8 +112,8 @@ export function adminRouter(deps: AdminDeps): Router {
     try {
       before = await deps.posts.getById(req.params.id);
       if (!before) throw postNotFound();
+      await addTerms(resolved);
       post = await deps.posts.update(req.params.id, resolved.fields);
-      await upsertTerms(resolved);
     } catch (err) {
       throw translate(err);
     }
@@ -134,10 +143,11 @@ export function adminRouter(deps: AdminDeps): Router {
     return resolved;
   }
 
-  async function upsertTerms(resolved: Resolved): Promise<void> {
+  /** Runs before the post write so a saved post never points at a term that failed to save. */
+  async function addTerms(resolved: Resolved): Promise<void> {
     await Promise.all([
-      deps.categories.upsert(resolved.categories),
-      deps.tags.upsert(resolved.tags),
+      deps.categories.addMissing(resolved.categories),
+      deps.tags.addMissing(resolved.tags),
     ]);
   }
 
