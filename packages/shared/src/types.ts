@@ -21,6 +21,8 @@ export type Post = {
   status: PostStatus;
   photos: Photo[];
   wpId?: number;
+  /** ISO time of the last import write; a later updatedAt means the post was edited since. */
+  importedAt?: string;
   createdAt: string;
   updatedAt: string;
 };

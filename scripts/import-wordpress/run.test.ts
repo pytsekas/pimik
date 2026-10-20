@@ -120,7 +120,7 @@ describe('runImport', () => {
     const requestsAfterFirst = imageRequests.length;
 
     const second = await run();
-    expect(second).toMatchObject({ posts: POST_COUNT, photos: 0, skipped: 0 });
+    expect(second).toMatchObject({ posts: POST_COUNT, photos: 0, skipped: 0, keptEdited: 0 });
     expect(await bucketObjects()).toEqual(objectsAfterFirst);
     expect(imageRequests).toHaveLength(requestsAfterFirst);
     const idsAfterSecond = (await posts.listAll()).map((post) => [
@@ -128,6 +128,54 @@ describe('runImport', () => {
       post.photos.map((p) => p.id),
     ]);
     expect(idsAfterSecond).toEqual(idsAfterFirst);
+  });
+
+  it('keeps posts edited after the import, including their draft status', async () => {
+    await run();
+    const bowie = (await posts.getBySlug('david-bowie-★'))!;
+    expect(bowie.importedAt).toBe(bowie.updatedAt);
+    const { id: _id, createdAt: _c, updatedAt: _u, ...fields } = bowie;
+    await posts.update(bowie.id, {
+      ...fields,
+      title: 'Edited by admin',
+      status: 'draft',
+      photos: bowie.photos.slice(0, 1),
+    });
+
+    const second = await run();
+    expect(second).toMatchObject({ posts: POST_COUNT - 1, keptEdited: 1 });
+    expect(await posts.getById(bowie.id)).toMatchObject({
+      title: 'Edited by admin',
+      status: 'draft',
+      photos: bowie.photos.slice(0, 1),
+    });
+  });
+
+  it('updates unedited posts on a re-run but keeps their status', async () => {
+    await run();
+    const bowie = (await posts.getBySlug('david-bowie-★'))!;
+    const { db } = initFirebase(config);
+    await db.collection('posts').doc(bowie.id).update({ status: 'draft' });
+    const ajukaja = (await posts.getBySlug('ajukaja-ats-soome-papp'))!;
+    const renamed: typeof fakeFetch = async (input, init) => {
+      if (new URL(urlOf(input)).pathname !== '/wp-json/wp/v2/posts') return fakeFetch(input, init);
+      const wp = JSON.parse(fixtureText('posts-sample.json')) as {
+        id: number;
+        title: { rendered: string };
+      }[];
+      const changed = wp.map((post) =>
+        post.id === ajukaja.wpId ? { ...post, title: { rendered: 'Renamed in WP' } } : post,
+      );
+      return new Response(JSON.stringify(changed), { headers: { 'x-wp-totalpages': '1' } });
+    };
+
+    const second = await runImport({ baseUrl: BASE_URL, fetchImpl: renamed, deps });
+    expect(second).toMatchObject({ posts: POST_COUNT, keptEdited: 0 });
+    const after = (await posts.getById(ajukaja.id))!;
+    expect(after.title).toBe('Renamed in WP');
+    expect(after.importedAt).toBe(after.updatedAt);
+    expect(after.importedAt! > ajukaja.importedAt!).toBe(true);
+    expect((await posts.getById(bowie.id))?.status).toBe('draft');
   });
 
   it('stores the mapped post fields and the wpId', async () => {

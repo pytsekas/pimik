@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { variantPaths, type Photo } from '@vinyl/shared';
+import { variantPaths, type Photo, type Post } from '@vinyl/shared';
 import { loadConfig } from '@vinyl/api/config';
 import { initFirebase } from '@vinyl/api/firebase';
 import { sanitizeOriginal } from '@vinyl/api/images/sanitizeOriginal';
@@ -46,6 +46,8 @@ export type ImportStats = {
   photos: number;
   /** Posts skipped because their slug belongs to another post. */
   skipped: number;
+  /** Posts left alone because they were edited after their last import. */
+  keptEdited: number;
   /** Posts imported without any photo. */
   noPhotos: number;
   /** Images that were rejected (other host, not an image, too large) or could not be downloaded or decoded. */
@@ -78,7 +80,14 @@ export async function runImport(options: ImportOptions): Promise<ImportStats> {
     deps.tags.upsert([...tags.values()]),
   ]);
 
-  const stats: ImportStats = { posts: 0, photos: 0, skipped: 0, noPhotos: 0, failedImages: 0 };
+  const stats: ImportStats = {
+    posts: 0,
+    photos: 0,
+    skipped: 0,
+    keptEdited: 0,
+    noPhotos: 0,
+    failedImages: 0,
+  };
   const known = new Map<string, Photo>();
   for (const post of await deps.posts.listAll()) {
     for (const photo of post.photos) {
@@ -96,6 +105,11 @@ export async function runImport(options: ImportOptions): Promise<ImportStats> {
 async function importPost(ctx: Context, post: ImportedPost): Promise<void> {
   const { deps, stats, log } = ctx;
   const existing = await deps.posts.getByWpId(post.wpId);
+  if (existing && editedSinceImport(existing)) {
+    stats.keptEdited += 1;
+    log(`kept wp ${post.wpId} (${existing.slug}): edited after the last import`);
+    return;
+  }
   const imported = await mapLimit(post.imageUrls, IMAGE_CONCURRENCY, (url) =>
     importImage(ctx, url),
   );
@@ -109,7 +123,7 @@ async function importPost(ctx: Context, post: ImportedPost): Promise<void> {
     categorySlug: post.categorySlug,
     tagSlugs: post.tagSlugs,
     publishedAt: post.publishedAt,
-    status: 'published',
+    status: existing?.status ?? 'published',
     photos,
     wpId: post.wpId,
   };
@@ -117,7 +131,9 @@ async function importPost(ctx: Context, post: ImportedPost): Promise<void> {
   if (post.text) fields.text = post.text;
 
   try {
-    await (existing ? deps.posts.update(existing.id, fields) : deps.posts.create(fields));
+    await (existing
+      ? deps.posts.update(existing.id, fields, { imported: true })
+      : deps.posts.create(fields, { imported: true }));
   } catch (err) {
     if (!(err instanceof SlugTakenError)) throw err;
     stats.skipped += 1;
@@ -129,6 +145,11 @@ async function importPost(ctx: Context, post: ImportedPost): Promise<void> {
     stats.noPhotos += 1;
     log(`wp ${post.wpId} (${post.slug}) has no photos`);
   }
+}
+
+/** Posts imported before importedAt existed count as unedited. */
+function editedSinceImport(post: Post): boolean {
+  return post.importedAt !== undefined && post.updatedAt > post.importedAt;
 }
 
 /** Returns the already imported photo for the URL, or downloads and stores it; null on failure. */

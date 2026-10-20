@@ -5,6 +5,11 @@ const PAGE_SIZE = 10;
 
 export type PostFields = Omit<Post, 'id' | 'createdAt' | 'updatedAt'>;
 
+export type WriteOptions = {
+  /** Marks the write as done by the importer: importedAt is set to the write time. */
+  imported?: boolean;
+};
+
 export class SlugTakenError extends Error {
   readonly slug: string;
 
@@ -85,10 +90,11 @@ export class PostRepo {
     return this.findOne('wpId', wpId);
   }
 
-  async create(input: PostFields): Promise<Post> {
+  async create(input: PostFields, options: WriteOptions = {}): Promise<Post> {
     const ref = this.db.collection('posts').doc();
     const now = new Date().toISOString();
     const post: Post = { ...input, id: ref.id, createdAt: now, updatedAt: now };
+    if (options.imported) post.importedAt = now;
     await this.db.runTransaction(async (tx) => {
       const slugRef = this.slugRef(input.slug);
       if ((await tx.get(slugRef)).exists) {
@@ -100,7 +106,7 @@ export class PostRepo {
     return post;
   }
 
-  async update(id: string, input: PostFields): Promise<Post> {
+  async update(id: string, input: PostFields, options: WriteOptions = {}): Promise<Post> {
     const ref = this.db.collection('posts').doc(id);
     return this.db.runTransaction(async (tx) => {
       const [postDoc, slugDoc] = await Promise.all([tx.get(ref), tx.get(this.slugRef(input.slug))]);
@@ -111,12 +117,14 @@ export class PostRepo {
       if (slugDoc.exists && slugDoc.data()?.postId !== id) {
         throw new SlugTakenError(input.slug);
       }
+      const now = new Date().toISOString();
       const post: Post = {
         ...input,
         wpId: input.wpId ?? existing.wpId,
+        importedAt: options.imported ? now : (input.importedAt ?? existing.importedAt),
         id,
         createdAt: existing.createdAt,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       };
       if (existing.slug !== input.slug) {
         tx.delete(this.slugRef(existing.slug));

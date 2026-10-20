@@ -139,6 +139,24 @@ describe('PostRepo', () => {
       expect((await repo.getByWpId(123))?.id).toBe(created.id);
     });
 
+    it('stamps importedAt with the write time for imports, and keeps it on later edits', async () => {
+      const created = await repo.create(makePostInput({ slug: 'imp' }), { imported: true });
+      expect(created.importedAt).toBe(created.updatedAt);
+      const reimported = await repo.update(created.id, makePostInput({ slug: 'imp' }), {
+        imported: true,
+      });
+      expect(reimported.importedAt).toBe(reimported.updatedAt);
+      const edited = await repo.update(created.id, makePostInput({ slug: 'imp', title: 'Edit' }));
+      expect(edited.importedAt).toBe(reimported.importedAt);
+      expect(edited.updatedAt > (edited.importedAt ?? '')).toBe(true);
+      expect((await repo.getById(created.id))?.importedAt).toBe(reimported.importedAt);
+    });
+
+    it('does not stamp importedAt on ordinary writes', async () => {
+      const created = await repo.create(makePostInput({ slug: 'plain' }));
+      expect(created.importedAt).toBeUndefined();
+    });
+
     it('finds posts with non-ASCII slugs', async () => {
       const created = await repo.create(makePostInput({ slug: 'david-bowie-★' }));
       expect((await repo.getBySlug('david-bowie-★'))?.id).toBe(created.id);

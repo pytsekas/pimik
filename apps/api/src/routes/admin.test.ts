@@ -230,6 +230,23 @@ describe('admin routes', () => {
       expect(deletePhoto).toHaveBeenCalledWith('b');
     });
 
+    it('keeps wpId and importedAt of an imported post', async () => {
+      await categories.upsert([{ slug: 'vinyl', name: 'Vinyl' }]);
+      const post = await posts.create(
+        makePostInput({ slug: 'imp', wpId: 7, photos: [photo('a')] }),
+        {
+          imported: true,
+        },
+      );
+      const res = await request(app)
+        .put(`/v1/admin/posts/${post.id}`)
+        .set(bearer())
+        .send(body({ slug: 'imp', title: 'Edited', photos: [photo('a')], importedAt: 'x' }));
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ wpId: 7, importedAt: post.importedAt });
+      expect(res.body.updatedAt > post.importedAt!).toBe(true);
+    });
+
     it('returns 409 on slug clash and deletes nothing', async () => {
       const post = await seedThreePhotos();
       await posts.create(makePostInput({ slug: 'other' }));

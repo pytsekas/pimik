@@ -112,11 +112,14 @@ emulators (`pnpm dev`, or `firebase emulators:start` plus `docker compose up -d`
 pnpm import
 ```
 
-The importer is safe to run again: posts are matched by their WordPress id and already imported
-images (matched by their `wp-content/uploads` path) are reused, not downloaded again. Posts whose
-slug is already used by another post are skipped and logged; images that cannot be downloaded are
-logged and the post is imported without them. The last line printed is a JSON summary
-(`posts`, `photos`, `skipped`, `noPhotos`, `failedImages`).
+The importer can be run again. Posts are matched by their WordPress id and already imported
+images (matched by their `wp-content/uploads` path) are reused, not downloaded again. Each imported
+post records when it was imported (`importedAt`). A post edited in the admin after its last import
+is left exactly as it is, so edits, removed photos and an unpublished status survive. Every other
+existing post is updated from WordPress but keeps its current status (an unpublished post stays
+unpublished). Posts whose slug is already used by another post are skipped and logged; images that
+cannot be downloaded are logged and the post is imported without them. The last line printed is a
+JSON summary (`posts`, `photos`, `skipped`, `keptEdited`, `noPhotos`, `failedImages`).
 
 `pnpm dev` keeps the data between runs: the Firebase emulators export to `.emulator-data/` when they
 stop (Ctrl+C) and import it on the next start, and fake-gcs stores objects in `.gcs-data/` (both are
