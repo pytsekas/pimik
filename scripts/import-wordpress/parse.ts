@@ -72,12 +72,13 @@ export function parseWpPost(
   tagsById: Map<number, Term>,
 ): ImportedPost {
   const html = wp.content.rendered;
-  const withoutFigures = html.replace(FIGURE, '');
-  const { discogsUrl, paragraphs } = readParagraphs(withoutFigures);
+  const { discogsUrl, html: marked } = extractDiscogs(html);
+  const paragraphs = readBlocks(marked.replace(FIGURE, ''));
+  const slug = decodeSlug(wp.slug);
   const post: ImportedPost = {
     wpId: wp.id,
-    slug: decodeSlug(wp.slug),
-    title: decodeEntities(wp.title.rendered),
+    slug,
+    title: decodeEntities(wp.title.rendered).trim() || slug,
     categorySlug: categoryOf(wp, categoriesById),
     tagSlugs: wp.tags.flatMap((id) => tagsById.get(id)?.slug ?? []),
     publishedAt: wp.date.slice(0, 10),
@@ -123,21 +124,58 @@ function fullSize(url: string): string {
   return prefix + parseWpImagePath(url.slice(prefix.length)).basePath;
 }
 
-function readParagraphs(html: string): { discogsUrl?: string; paragraphs: string[] } {
-  const paragraphs: string[] = [];
-  let discogsUrl: string | undefined;
-  for (const [, inner = ''] of html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
-    const link = /^\s*<a\b[^>]*\bhref="([^"]*discogs\.com[^"]*)"[^>]*>[\s\S]*?<\/a>\s*$/i.exec(
-      inner,
-    );
-    if (link?.[1]) {
-      discogsUrl ??= decodeEntities(link[1]);
-      continue;
-    }
-    const text = decodeEntities(inner.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')).trim();
-    if (text) paragraphs.push(text);
+const ANCHOR = /<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+/** Stands in for the extracted discogs link while the text is built. */
+const DISCOGS_MARK = '';
+/** What may sit next to the extracted link in a block that is otherwise empty. */
+const ONLY_PUNCTUATION = /^[\s[\](){}–—\-:|.,]*$/;
+
+/** Takes out the first discogs.com link, leaving a marker where it was. */
+function extractDiscogs(html: string): { discogsUrl?: string; html: string } {
+  for (const match of html.matchAll(ANCHOR)) {
+    const href = match[1] ?? '';
+    if (!/discogs\.com/i.test(href)) continue;
+    const start = match.index;
+    return {
+      discogsUrl: decodeEntities(href),
+      html: html.slice(0, start) + DISCOGS_MARK + html.slice(start + match[0].length),
+    };
   }
-  return discogsUrl ? { discogsUrl, paragraphs } : { paragraphs };
+  return { html };
+}
+
+/** Text of paragraphs and list items as Markdown, with the remaining links kept as Markdown links. */
+function readBlocks(html: string): string[] {
+  const blocks: string[] = [];
+  let previousWasItem = false;
+  for (const [, tag = '', inner = ''] of html.matchAll(/<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    const text = blockText(inner);
+    if (text === null) continue;
+    const isItem = tag.toLowerCase() === 'li';
+    if (isItem && previousWasItem) {
+      blocks[blocks.length - 1] += `\n- ${text}`;
+    } else {
+      blocks.push(isItem ? `- ${text}` : text);
+    }
+    previousWasItem = isItem;
+  }
+  return blocks;
+}
+
+/** Markdown for one block, or null when nothing but the extracted discogs link was in it. */
+function blockText(inner: string): string | null {
+  const linked = inner.replace(ANCHOR, (_match, href: string, label: string) => {
+    const text = label.replace(/<[^>]*>/g, '').trim();
+    return text ? `[${text}](${href})` : '';
+  });
+  const text = stripTags(linked.replace(/<br\s*\/?>/gi, '\n')).trim();
+  if (!text.includes(DISCOGS_MARK)) return text || null;
+  const rest = text.replace(/[\s–—\-:|]*/, '').trim();
+  return ONLY_PUNCTUATION.test(rest) ? null : rest;
+}
+
+function stripTags(html: string): string {
+  return decodeEntities(html.replace(/<[^>]*>/g, ''));
 }
 
 function categoryOf(wp: WpPost, categoriesById: Map<number, Term>): string {
