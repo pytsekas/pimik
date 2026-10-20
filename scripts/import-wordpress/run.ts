@@ -9,6 +9,7 @@ import { PostRepo, SlugTakenError, type PostFields } from '@vinyl/api/repo/posts
 import { TermRepo } from '@vinyl/api/repo/terms';
 import { PhotoStore } from '@vinyl/api/storage/bucket';
 import type { PhotoStorage } from '@vinyl/api/storage/types';
+import { downloadImage, getJson, sameSiteUrl, type Retry } from './download.ts';
 import {
   parseWpPost,
   termsOf,
@@ -20,8 +21,6 @@ import {
 
 const PER_PAGE = 100;
 const IMAGE_CONCURRENCY = 4;
-const DOWNLOAD_ATTEMPTS = 3;
-const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 export type ImportDeps = {
   posts: PostRepo;
@@ -49,13 +48,15 @@ export type ImportStats = {
   skipped: number;
   /** Posts imported without any photo. */
   noPhotos: number;
-  /** Images that could not be downloaded or decoded. */
+  /** Images that were rejected (other host, not an image, too large) or could not be downloaded or decoded. */
   failedImages: number;
 };
 
 type Context = {
   deps: ImportDeps;
   fetchImpl: typeof fetch;
+  baseUrl: string;
+  retry: Retry;
   log: (message: string) => void;
   /** Photos already imported, by wpPath, from earlier runs and from this one. */
   known: Map<string, Photo>;
@@ -64,10 +65,11 @@ type Context = {
 
 export async function runImport(options: ImportOptions): Promise<ImportStats> {
   const { baseUrl = 'https://vinyl.rehab', fetchImpl = fetch, deps } = options;
+  const retry = { backoffMs: deps.backoffMs ?? 500 };
   const [wpPosts, wpCategories, wpTags] = await Promise.all([
-    fetchAll<WpPost>(fetchImpl, baseUrl, 'posts'),
-    fetchAll<WpTerm>(fetchImpl, baseUrl, 'categories'),
-    fetchAll<WpTerm>(fetchImpl, baseUrl, 'tags'),
+    fetchAll<WpPost>(fetchImpl, baseUrl, 'posts', retry),
+    fetchAll<WpTerm>(fetchImpl, baseUrl, 'categories', retry),
+    fetchAll<WpTerm>(fetchImpl, baseUrl, 'tags', retry),
   ]);
   const categories = termsOf(wpCategories);
   const tags = termsOf(wpTags);
@@ -83,7 +85,8 @@ export async function runImport(options: ImportOptions): Promise<ImportStats> {
       if (photo.wpPath) known.set(photo.wpPath, photo);
     }
   }
-  const ctx: Context = { deps, fetchImpl, log: deps.log ?? (() => {}), known, stats };
+  const log = deps.log ?? (() => {});
+  const ctx: Context = { deps, fetchImpl, baseUrl, retry, log, known, stats };
   for (const wp of wpPosts) {
     await importPost(ctx, parseWpPost(wp, categories, tags));
   }
@@ -137,6 +140,11 @@ async function importImage(ctx: Context, url: string): Promise<Photo | null> {
   }
   const cached = ctx.known.get(wpPath);
   if (cached) return cached;
+  if (!sameSiteUrl(url, ctx.baseUrl)) {
+    ctx.stats.failedImages += 1;
+    ctx.log(`image rejected, not on ${ctx.baseUrl}: ${url}`);
+    return null;
+  }
   try {
     const photo = await storePhoto(ctx, url, wpPath);
     ctx.known.set(wpPath, photo);
@@ -151,7 +159,9 @@ async function importImage(ctx: Context, url: string): Promise<Photo | null> {
 
 async function storePhoto(ctx: Context, url: string, wpPath: string): Promise<Photo> {
   const { store, photoIndex } = ctx.deps;
-  const original = await sanitizeOriginal(await download(ctx, url));
+  const original = await sanitizeOriginal(
+    await downloadImage(ctx.fetchImpl, url, ctx.baseUrl, ctx.retry),
+  );
   const variants = await makeVariants(original.data);
   const id = randomUUID().replaceAll('-', '');
   const paths = variantPaths(id);
@@ -168,35 +178,18 @@ async function storePhoto(ctx: Context, url: string, wpPath: string): Promise<Ph
   return { id, width: original.width, height: original.height, paths, wpPath };
 }
 
-async function download(ctx: Context, url: string): Promise<Buffer> {
-  const backoff = ctx.deps.backoffMs ?? 500;
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
-    try {
-      const res = await ctx.fetchImpl(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return Buffer.from(await res.arrayBuffer());
-    } catch (err) {
-      lastError = err;
-      if (attempt < DOWNLOAD_ATTEMPTS) await sleep(backoff * 2 ** (attempt - 1));
-    }
-  }
-  throw lastError;
-}
-
 async function fetchAll<T>(
   fetchImpl: typeof fetch,
   baseUrl: string,
   resource: string,
+  retry: Retry,
 ): Promise<T[]> {
   const items: T[] = [];
   for (let page = 1; ; page += 1) {
     const url = `${baseUrl}/wp-json/wp/v2/${resource}?per_page=${PER_PAGE}&page=${page}`;
-    const res = await fetchImpl(url);
-    if (!res.ok) throw new Error(`WordPress ${resource} page ${page} failed: HTTP ${res.status}`);
-    const batch = (await res.json()) as T[];
+    const { body, totalPages } = await getJson(fetchImpl, url, retry);
+    const batch = body as T[];
     items.push(...batch);
-    const totalPages = Number(res.headers.get('x-wp-totalpages'));
     const last = totalPages > 0 ? page >= totalPages : batch.length < PER_PAGE;
     if (last) return items;
   }
@@ -223,15 +216,8 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
-  // @google-cloud/storage also reads this variable and then drops /storage/v1 from the
-  // endpoint it was given explicitly, so bucket calls 404 when both are set.
-  delete process.env.STORAGE_EMULATOR_HOST;
   const { db } = initFirebase(config);
   const store = new PhotoStore(config);
   if (config.storageEmulatorHost) await store.ensureBucket();

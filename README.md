@@ -63,5 +63,12 @@ slug is already used by another post are skipped and logged; images that cannot 
 logged and the post is imported without them. The last line printed is a JSON summary
 (`posts`, `photos`, `skipped`, `noPhotos`, `failedImages`).
 
-The emulators keep everything in memory: Firestore data is lost when the emulator stops and the
-fake-gcs backend is lost when its container restarts, so run the import again after either.
+`pnpm dev` keeps the data between runs: the Firebase emulators export to `.emulator-data/` when they
+stop (Ctrl+C) and import it on the next start, and fake-gcs stores objects in `.gcs-data/` (both are
+gitignored). Delete those two directories for a clean slate. `pnpm test` starts its own emulators
+without importing or exporting anything, and its buckets are named differently, so it never touches
+this data. Stopping the emulators in any other way (kill -9, a crash) skips the export, so run the
+import again.
+
+The importer only fetches images from the same site as the WordPress base URL, rejects anything that
+is not an image or is larger than 30 MB, and does not follow redirects to other hosts.

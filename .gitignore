@@ -3,6 +3,8 @@
 node_modules/
 dist/
 .env
+.emulator-data/
+.gcs-data/
 firestore-debug.log
 firebase-debug.log
 ui-debug.log

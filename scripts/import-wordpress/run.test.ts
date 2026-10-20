@@ -14,7 +14,7 @@ import { runImport, type ImportDeps } from './run.ts';
 const PROJECT_ID = 'vinyl-rehab-import-test';
 const BUCKET = 'vinyl-rehab-import-test';
 const STORAGE_HOST = 'http://localhost:4443';
-const BASE_URL = 'https://wp.test';
+const BASE_URL = 'https://vinyl.rehab';
 
 function urlOf(input: Parameters<typeof fetch>[0]): string {
   if (typeof input === 'string') return input;
@@ -187,5 +187,117 @@ describe('runImport', () => {
     const stats = await runImport({ baseUrl: BASE_URL, fetchImpl: bareFetch, deps });
     expect(stats).toMatchObject({ posts: POST_COUNT, photos: 0, noPhotos: POST_COUNT });
     expect((await posts.getBySlug('supersilent-14'))?.text).toBe('hello');
+  });
+
+  describe('hostile or broken image responses', () => {
+    const MB = 1024 * 1024;
+    const uploads = `${BASE_URL}/wp-content/uploads/2026/02`;
+
+    /** Imports one post whose content is the given image URLs, answering image requests with `respond`. */
+    async function importWithImages(
+      urls: string[],
+      respond: (url: string) => Response | Promise<Response>,
+    ) {
+      const wp = JSON.parse(fixtureText('posts-sample.json')) as {
+        content: { rendered: string };
+      }[];
+      const html = urls
+        .map((url) => `<figure class="wp-block-image"><img src="${url}" /></figure>`)
+        .join('');
+      const single = [{ ...wp[0], content: { rendered: html } }];
+      const fetchImpl: typeof fetch = async (input, init) => {
+        const url = urlOf(input);
+        if (new URL(url).pathname === '/wp-json/wp/v2/posts') {
+          return new Response(JSON.stringify(single), { headers: { 'x-wp-totalpages': '1' } });
+        }
+        if (url.includes('/wp-json/')) return fakeFetch(input, init);
+        imageRequests.push(url);
+        return respond(url);
+      };
+      return runImport({ baseUrl: BASE_URL, fetchImpl, deps });
+    }
+
+    it('never fetches an image from another host', async () => {
+      const stats = await importWithImages(
+        ['https://evil.example/wp-content/uploads/a.jpg'],
+        () => {
+          throw new Error('must not be fetched');
+        },
+      );
+      expect(imageRequests).toEqual([]);
+      expect(stats).toMatchObject({ posts: 1, photos: 0, failedImages: 1, noPhotos: 1 });
+      expect(logs.some((line) => line.includes('evil.example'))).toBe(true);
+    });
+
+    it('accepts http links to the same site and fetches them over https', async () => {
+      const stats = await importWithImages(
+        ['http://vinyl.rehab/wp-content/uploads/2026/02/a.jpg'],
+        () =>
+          new Response(new Uint8Array(jpegBytes), { headers: { 'content-type': 'image/jpeg' } }),
+      );
+      expect(imageRequests).toEqual([`${uploads}/a.jpg`]);
+      expect(stats).toMatchObject({ photos: 1, failedImages: 0 });
+    });
+
+    it('does not follow a redirect to another host', async () => {
+      const stats = await importWithImages([`${uploads}/a.jpg`], (url) =>
+        url.startsWith(BASE_URL)
+          ? new Response(null, {
+              status: 302,
+              headers: { location: 'https://evil.example/x.jpg' },
+            })
+          : new Response('should not be requested', { status: 200 }),
+      );
+      expect(imageRequests).toEqual([`${uploads}/a.jpg`]);
+      expect(stats).toMatchObject({ photos: 0, failedImages: 1 });
+    });
+
+    it('follows a redirect within the site', async () => {
+      const stats = await importWithImages([`${uploads}/a.jpg`], (url) =>
+        url.endsWith('/a.jpg')
+          ? new Response(null, { status: 301, headers: { location: '/wp-content/uploads/b.jpg' } })
+          : new Response(new Uint8Array(jpegBytes), { headers: { 'content-type': 'image/jpeg' } }),
+      );
+      expect(stats).toMatchObject({ photos: 1, failedImages: 0 });
+    });
+
+    it('rejects a response that is not an image, without retrying', async () => {
+      const stats = await importWithImages(
+        [`${uploads}/a.jpg`],
+        () => new Response('<html></html>', { headers: { 'content-type': 'text/html' } }),
+      );
+      expect(imageRequests).toHaveLength(1);
+      expect(stats).toMatchObject({ photos: 0, failedImages: 1 });
+      expect(logs.some((line) => line.includes('not an image'))).toBe(true);
+    });
+
+    it('rejects an image whose Content-Length is above 30 MB', async () => {
+      const stats = await importWithImages(
+        [`${uploads}/a.jpg`],
+        () =>
+          new Response(new Uint8Array(10), {
+            headers: { 'content-type': 'image/jpeg', 'content-length': String(31 * MB) },
+          }),
+      );
+      expect(stats).toMatchObject({ photos: 0, failedImages: 1 });
+      expect(logs.some((line) => line.includes('too large'))).toBe(true);
+    });
+
+    it('stops reading a body that grows past 30 MB without declaring its size', async () => {
+      let sent = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          sent += 1;
+          controller.enqueue(new Uint8Array(MB));
+          if (sent > 100) controller.close();
+        },
+      });
+      const stats = await importWithImages(
+        [`${uploads}/a.jpg`],
+        () => new Response(body, { headers: { 'content-type': 'image/jpeg' } }),
+      );
+      expect(stats).toMatchObject({ photos: 0, failedImages: 1 });
+      expect(sent).toBeLessThan(60);
+    });
   });
 });

@@ -94,4 +94,26 @@ describe('parseWpPost', () => {
     expect(post.imageUrls).toEqual([`${upload}/DSC_4935.jpg`, `${upload}/DSC_4936.jpg`]);
     expect(post.text).toBe('Nice deck');
   });
+
+  it('reads an anchor-wrapped classic image between text and ignores non-uploads images', () => {
+    const upload = 'https://vinyl.rehab/wp-content/uploads/2018/03';
+    const wp: WpPost = {
+      id: 61,
+      date: '2018-03-01T10:00:00',
+      slug: 'classic',
+      link: 'https://vinyl.rehab/vinyl/classic/',
+      title: { rendered: 'classic' },
+      content: {
+        rendered:
+          `<p>Before <a href="${upload}/big.jpg"><img src="${upload}/big-1024x768.jpg" /></a> after</p>` +
+          '<p><img src="https://s.w.org/images/core/emoji/14/72x72/1f600.png" alt="" /></p>' +
+          '<p><a href="https://example.com/page"><img src="https://example.com/banner.jpg" /></a></p>',
+      },
+      categories: [5],
+      tags: [],
+    };
+    const post = parseWpPost(wp, categories, tags);
+    expect(post.imageUrls).toEqual([`${upload}/big.jpg`]);
+    expect(post.text).toBe('Before  after');
+  });
 });

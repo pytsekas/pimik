@@ -8,6 +8,24 @@ silenceStorageStreamWarning();
 
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 
+const EMULATOR_VARIABLE = 'STORAGE_EMULATOR_HOST';
+
+/**
+ * The client also reads STORAGE_EMULATOR_HOST itself and then uses it as the full base URL,
+ * without /storage/v1, which breaks fake-gcs-server when `apiEndpoint` is given too. The
+ * endpoint comes from our config, so the variable is hidden while the client is constructed.
+ */
+function createStorage(config: Config): Storage {
+  if (!config.storageEmulatorHost) return new Storage({ projectId: config.projectId });
+  const inherited = process.env[EMULATOR_VARIABLE];
+  delete process.env[EMULATOR_VARIABLE];
+  try {
+    return new Storage({ projectId: config.projectId, apiEndpoint: config.storageEmulatorHost });
+  } finally {
+    if (inherited !== undefined) process.env[EMULATOR_VARIABLE] = inherited;
+  }
+}
+
 /** Photo objects in GCS, or in fake-gcs-server when STORAGE_EMULATOR_HOST is set. */
 export class PhotoStore implements PhotoStorage {
   private readonly config: Config;
@@ -15,10 +33,7 @@ export class PhotoStore implements PhotoStorage {
 
   constructor(config: Config) {
     this.config = config;
-    const storage = config.storageEmulatorHost
-      ? new Storage({ projectId: config.projectId, apiEndpoint: config.storageEmulatorHost })
-      : new Storage({ projectId: config.projectId });
-    this.bucket = storage.bucket(config.bucket);
+    this.bucket = createStorage(config).bucket(config.bucket);
   }
 
   /** Creates the bucket when missing; only meant for the local emulator. */
