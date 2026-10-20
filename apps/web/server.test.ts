@@ -57,16 +57,23 @@ const fakeApi: ApiClient = {
   async getPostBySlug(slug) {
     return posts.find((candidate) => candidate.slug === slug) ?? null;
   },
-  async getPostByWpId() {
-    return null;
+  async getPostByWpId(wpId) {
+    return wpId === 123 ? { categorySlug: 'vinyl', slug: 'some-slug' } : null;
   },
   async listCategories() {
-    return [];
+    return [
+      { slug: 'vinyl', name: 'Vinyl', count: 4 },
+      { slug: 'empty', name: 'Empty', count: 0 },
+    ];
   },
   async listTags() {
     return [{ slug: 'ambient', name: 'Ambient' }];
   },
-  async legacyImage() {
+  async legacyImage(path) {
+    if (path === '2026/01/DSCF2087-768x768.jpg') {
+      return { url: 'http://images.test/bucket/photos/p1/w1000.jpg' };
+    }
+    if (path === '2026/01/evil.jpg') return { url: 'http://evil.test/x.jpg' };
     return null;
   },
 };
@@ -311,5 +318,102 @@ describe('web /v1 proxy', () => {
     const res = await request(web.app).get('/v1/categories');
     expect(res.status).toBe(502);
     expect(res.body.error).toBe('bad_gateway');
+  });
+});
+
+describe('legacy WordPress URLs', () => {
+  it('redirects an upload to the image host', async () => {
+    const res = await request(web.app).get('/wp-content/uploads/2026/01/DSCF2087-768x768.jpg');
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('http://images.test/bucket/photos/p1/w1000.jpg');
+  });
+
+  it('404s an unknown upload and one resolving to a foreign origin', async () => {
+    const unknown = await request(web.app).get('/wp-content/uploads/2026/01/none.jpg');
+    expect(unknown.status).toBe(404);
+    const foreign = await request(web.app).get('/wp-content/uploads/2026/01/evil.jpg');
+    expect(foreign.status).toBe(404);
+    expect(foreign.headers.location).toBeUndefined();
+  });
+
+  it('redirects ?p=id to the post and 404s an unknown id', async () => {
+    const found = await request(web.app).get('/?p=123');
+    expect(found.status).toBe(301);
+    expect(found.headers.location).toBe('/vinyl/some-slug/');
+    expect((await request(web.app).get('/?p=999999')).status).toBe(404);
+  });
+
+  it('renders the home page for a junk or repeated p', async () => {
+    expect((await request(web.app).get('/?p=abc')).status).toBe(200);
+    expect((await request(web.app).get('/?p=123&p=124')).status).toBe(200);
+  });
+
+  it('redirects attachment pages of a known category', async () => {
+    const res = await request(web.app).get('/vinyl/depeche-mode-useless-home/dscf6032/');
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/vinyl/depeche-mode-useless-home/');
+  });
+
+  it('redirects date archives to the home page', async () => {
+    for (const path of ['/2021/05/', '/2021/', '/2021/05/page/2/']) {
+      const res = await request(web.app).get(path);
+      expect(res.status).toBe(301);
+      expect(res.headers.location).toBe('/');
+    }
+  });
+
+  it('redirects /wp-sitemap.xml to /sitemap.xml', async () => {
+    const res = await request(web.app).get('/wp-sitemap.xml');
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/sitemap.xml');
+  });
+
+  it('does not turn a protocol-relative path into a host', async () => {
+    // Parsed as a URL against a base, this would read as host `evil.test`, path `/vinyl/a/b/`.
+    const res = await rawGet('//evil.test/vinyl/a/b/');
+    expect(res.location).toBeUndefined();
+  });
+});
+
+describe('web feed and sitemap', () => {
+  it('serves the RSS feed at /feed and /feed/ without redirecting', async () => {
+    for (const path of ['/feed', '/feed/']) {
+      const res = await request(web.app).get(path).buffer(true);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toBe('application/rss+xml; charset=utf-8');
+      expect(res.headers['cache-control']).toBe('public, max-age=600');
+    }
+  });
+
+  it('lists the newest posts first with permalink, date and enclosure', async () => {
+    const res = await request(web.app).get('/feed/').buffer(true);
+    const items = res.text.split('<item>').slice(1);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.length).toBeLessThanOrEqual(20);
+    expect(items[0]).toContain('<link>http://site.test/vinyl/david-bowie-%E2%98%85/</link>');
+    expect(items[0]).toContain(
+      '<guid isPermaLink="true">http://site.test/vinyl/david-bowie-%E2%98%85/</guid>',
+    );
+    expect(items[0]).toContain('<pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>');
+    expect(res.text).toContain('<atom:link href="http://site.test/feed/" rel="self"');
+    expect(res.text).toContain(
+      '<enclosure url="http://images.test/bucket/photos/x/w1000.jpg" type="image/jpeg" length="0"/>',
+    );
+    expect(res.text).toContain('&lt;/script&gt;&lt;script&gt;alert(1)');
+    expect(res.text).not.toContain('</script><script>');
+  });
+
+  it('serves a sitemap with posts, lastmod and non-empty terms only', async () => {
+    const res = await request(web.app).get('/sitemap.xml').buffer(true);
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('public, max-age=3600');
+    expect(res.text).toContain('<urlset');
+    expect(res.text).toContain('<loc>http://site.test/</loc>');
+    expect(res.text).toContain(
+      '<loc>http://site.test/vinyl/with-photo/</loc><lastmod>2024-01-01T00:00:00.000Z</lastmod>',
+    );
+    expect(res.text).toContain('<loc>http://site.test/tag/ambient/</loc>');
+    expect(res.text).toContain('<loc>http://site.test/category/vinyl/</loc>');
+    expect(res.text).not.toContain('/category/empty/');
   });
 });

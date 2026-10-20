@@ -5,6 +5,9 @@ import express, { type ErrorRequestHandler, type Express, type RequestHandler } 
 import { loadConfig } from './config.ts';
 import { createApiClient, type ApiClient } from './src/api.ts';
 import type { RenderResult, render as renderPage } from './src/entry-server.ts';
+import { renderFeed } from './src/feed.ts';
+import { createCategoryCache, resolveLegacy, type CategoryCache } from './src/legacy.ts';
+import { renderSitemap } from './src/sitemap.ts';
 
 export type WebServerOptions = {
   apiUrl: string;
@@ -17,6 +20,8 @@ export type WebServerOptions = {
   hmr?: boolean;
   /** Replaces the client built from `apiUrl` for server-side rendering (tests). */
   apiClient?: ApiClient;
+  /** Legacy-URL category lookup; defaults to a 60 s cache over `apiClient` (tests inject one). */
+  categoryCache?: CategoryCache;
 };
 
 export type WebServer = { app: Express; close(): Promise<void> };
@@ -178,7 +183,9 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   const app = express();
   app.disable('x-powered-by');
   const api = options.apiClient ?? createApiClient(options.apiUrl);
-  const siteConfig = { imageBaseUrl: options.imageBaseUrl, siteUrl: options.siteUrl ?? '' };
+  const siteUrl = (options.siteUrl ?? '').replace(/\/+$/, '');
+  const siteConfig = { imageBaseUrl: options.imageBaseUrl, siteUrl };
+  const categoryCache = options.categoryCache ?? createCategoryCache(api);
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -188,6 +195,38 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   const renderer = options.dev
     ? await devRenderer(app, options.hmr ?? true)
     : await prodRenderer(app);
+
+  app.get(['/feed', '/feed/'], async (_req, res) => {
+    const xml = await renderFeed(api, siteConfig);
+    res.set('Cache-Control', 'public, max-age=600');
+    res.set('Content-Type', 'application/rss+xml; charset=utf-8').send(xml);
+  });
+  app.get('/sitemap.xml', async (_req, res) => {
+    const xml = await renderSitemap(api, siteUrl);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Content-Type', 'application/xml; charset=utf-8').send(xml);
+  });
+
+  // Before the trailing-slash redirect and SSR: old WordPress URLs keep working.
+  app.use(async (req, res, next) => {
+    const plain = req.originalUrl.startsWith('/') && !req.originalUrl.includes('\\');
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || !plain) {
+      next();
+      return;
+    }
+    // Concatenated, not resolved: `//evil.example/x` must stay a path, not become a host.
+    const url = new URL(`http://x${req.originalUrl}`);
+    const legacy = await resolveLegacy(url, api, await categoryCache.get(), {
+      imageBaseUrl: options.imageBaseUrl,
+    });
+    if (!legacy) {
+      next();
+    } else if (legacy.status === 301) {
+      res.redirect(301, legacy.location);
+    } else {
+      res.status(404).type('text').send('Not found');
+    }
+  });
 
   app.use(trailingSlashRedirect);
 
