@@ -11,18 +11,18 @@ import { RouterLink } from 'vue-router';
 
 <style scoped>
 .site-header {
-  padding: 2rem 1rem 1rem;
-  background: var(--dark);
-  text-align: center;
+  max-width: var(--max-photo);
+  margin: 0 auto;
+  padding: 24px 16px 0;
 }
 
 .site-title {
   margin: 0;
-  font-size: 2.5rem;
+  font-size: 44px;
 }
 
 .site-title a {
-  color: var(--text);
+  color: var(--text-strong);
   text-decoration: none;
 }
 
@@ -31,7 +31,8 @@ import { RouterLink } from 'vue-router';
 }
 
 .site-tagline {
-  margin: 0.25rem 0 0;
+  margin: 0;
   color: var(--text-muted);
+  font-style: italic;
 }
 </style>

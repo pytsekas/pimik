@@ -147,7 +147,7 @@ const srcset = computed(() => {
 }
 
 .title a {
-  color: #fff;
+  color: var(--text-strong);
   text-decoration: none;
 }
 

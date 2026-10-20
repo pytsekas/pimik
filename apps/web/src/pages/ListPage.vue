@@ -66,6 +66,6 @@ useSeo({
 .list-heading {
   margin: 8px 0 0;
   font-size: 32px;
-  color: #fff;
+  color: var(--text-strong);
 }
 </style>
