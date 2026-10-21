@@ -8,10 +8,10 @@ const unexpected = (name: string) => async (): Promise<never> => {
 export function stubPhotoStore(overrides: Partial<PhotoStorage> = {}): PhotoStorage {
   return {
     createUploadTarget: unexpected('createUploadTarget'),
-    size: unexpected('size'),
-    read: unexpected('read'),
+    uploadSize: unexpected('uploadSize'),
+    readUpload: unexpected('readUpload'),
+    deleteUpload: unexpected('deleteUpload'),
     write: unexpected('write'),
-    deleteObject: unexpected('deleteObject'),
     deletePhoto: async () => {},
     ...overrides,
   };

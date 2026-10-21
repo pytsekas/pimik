@@ -20,8 +20,10 @@ describe('PhotoStore', () => {
     expect(process.env.STORAGE_EMULATOR_HOST).toBe('http://localhost:4443');
 
     await store.ensureBucket();
-    await store.write('a.txt', Buffer.from('hi'), 'text/plain');
-    expect((await store.read('a.txt')).toString()).toBe('hi');
-    await store.deleteObject('a.txt');
+    const target = await store.createUploadTarget('incoming/a', 'text/plain');
+    await fetch(target.url, { method: target.method, headers: target.headers, body: 'hi' });
+    expect((await store.readUpload('incoming/a')).toString()).toBe('hi');
+    await store.deleteUpload('incoming/a');
+    expect(await store.uploadSize('incoming/a')).toBeNull();
   });
 });

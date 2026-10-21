@@ -4,6 +4,7 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
   GCLOUD_PROJECT: z.string().min(1),
   BUCKET: z.string().min(1),
+  UPLOAD_BUCKET: z.string().min(1).optional(),
   IMAGE_BASE_URL: z.url(),
   ADMIN_EMAILS: z
     .string()
@@ -28,6 +29,8 @@ export type Config = {
   port: number;
   projectId: string;
   bucket: string;
+  /** Private bucket that browsers upload to before the api publishes the sanitized photo. */
+  uploadBucket: string;
   imageBaseUrl: string;
   adminEmails: string[];
   storageEmulatorHost?: string;
@@ -50,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: values.API_PORT,
     projectId: values.GCLOUD_PROJECT,
     bucket: values.BUCKET,
+    uploadBucket: values.UPLOAD_BUCKET ?? `${values.BUCKET}-uploads`,
     imageBaseUrl: values.IMAGE_BASE_URL.replace(/\/+$/, ''),
     adminEmails: values.ADMIN_EMAILS,
   };

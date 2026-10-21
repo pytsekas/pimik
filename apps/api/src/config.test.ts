@@ -14,6 +14,11 @@ describe('loadConfig', () => {
     expect(config.imageBaseUrl).toBe('https://img.example/bucket');
   });
 
+  it('defaults UPLOAD_BUCKET to the photo bucket name plus -uploads', () => {
+    expect(loadConfig(BASE).uploadBucket).toBe('vinyl-rehab-photos-uploads');
+    expect(loadConfig({ ...BASE, UPLOAD_BUCKET: 'staging' }).uploadBucket).toBe('staging');
+  });
+
   it.each(['FIREBASE_AUTH_EMULATOR_HOST', 'FIRESTORE_EMULATOR_HOST', 'STORAGE_EMULATOR_HOST'])(
     'refuses to load in production when %s is set',
     (name) => {

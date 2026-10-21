@@ -29,28 +29,33 @@ function createStorage(config: Config): Storage {
 /** Photo objects in GCS, or in fake-gcs-server when STORAGE_EMULATOR_HOST is set. */
 export class PhotoStore implements PhotoStorage {
   private readonly config: Config;
-  private readonly bucket: Bucket;
+  private readonly photos: Bucket;
+  private readonly uploads: Bucket;
 
   constructor(config: Config) {
     this.config = config;
-    this.bucket = createStorage(config).bucket(config.bucket);
+    const storage = createStorage(config);
+    this.photos = storage.bucket(config.bucket);
+    this.uploads = storage.bucket(config.uploadBucket);
   }
 
-  /** Creates the bucket when missing; only meant for the local emulator. */
+  /** Creates both buckets when missing; only meant for the local emulator. */
   async ensureBucket(): Promise<void> {
-    const [exists] = await this.bucket.exists();
-    if (!exists) await this.bucket.create();
+    for (const bucket of [this.photos, this.uploads]) {
+      const [exists] = await bucket.exists();
+      if (!exists) await bucket.create();
+    }
   }
 
-  async createUploadTarget(objectPath: string, contentType: string): Promise<UploadTarget> {
+  async createUploadTarget(uploadPath: string, contentType: string): Promise<UploadTarget> {
     const headers = { 'Content-Type': contentType };
     const host = this.config.storageEmulatorHost;
     if (host) {
-      const name = encodeURIComponent(objectPath);
-      const url = `${host}/upload/storage/v1/b/${this.config.bucket}/o?uploadType=media&name=${name}`;
+      const name = encodeURIComponent(uploadPath);
+      const url = `${host}/upload/storage/v1/b/${this.config.uploadBucket}/o?uploadType=media&name=${name}`;
       return { url, method: 'POST', headers };
     }
-    const [url] = await this.bucket.file(objectPath).getSignedUrl({
+    const [url] = await this.uploads.file(uploadPath).getSignedUrl({
       version: 'v4',
       action: 'write',
       expires: Date.now() + SIGNED_URL_TTL_MS,
@@ -59,35 +64,35 @@ export class PhotoStore implements PhotoStorage {
     return { url, method: 'PUT', headers };
   }
 
-  async size(path: string): Promise<number | null> {
-    const file = this.bucket.file(path);
+  async uploadSize(uploadPath: string): Promise<number | null> {
+    const file = this.uploads.file(uploadPath);
     const [exists] = await file.exists();
     if (!exists) return null;
     const [metadata] = await file.getMetadata();
     return Number(metadata.size);
   }
 
-  async read(path: string): Promise<Buffer> {
+  async readUpload(uploadPath: string): Promise<Buffer> {
     const chunks: Buffer[] = [];
-    for await (const chunk of this.bucket.file(path).createReadStream()) {
+    for await (const chunk of this.uploads.file(uploadPath).createReadStream()) {
       chunks.push(chunk as Buffer);
     }
     return Buffer.concat(chunks);
   }
 
+  async deleteUpload(uploadPath: string): Promise<void> {
+    await this.uploads.file(uploadPath).delete({ ignoreNotFound: true });
+  }
+
   async write(path: string, data: Buffer, contentType: string): Promise<void> {
-    await this.bucket.file(path).save(data, {
+    await this.photos.file(path).save(data, {
       resumable: false,
       metadata: { contentType, cacheControl: CACHE_CONTROL },
     });
   }
 
-  async deleteObject(path: string): Promise<void> {
-    await this.bucket.file(path).delete({ ignoreNotFound: true });
-  }
-
   async deletePhoto(photoId: string): Promise<void> {
-    await this.bucket.deleteFiles({ prefix: `photos/${photoId}/`, force: true });
+    await this.photos.deleteFiles({ prefix: `photos/${photoId}/`, force: true });
   }
 
   publicUrl(path: string): string {

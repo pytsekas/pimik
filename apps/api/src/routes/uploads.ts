@@ -11,6 +11,9 @@ export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const MAX_FILES = 50;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
+/** Where the browser uploads a photo in the private staging bucket. */
+export const uploadPath = (photoId: string) => `incoming/${photoId}`;
+
 export const UploadRequest = z.object({
   files: z
     .array(
@@ -52,7 +55,7 @@ export function uploadsRouter(deps: UploadsDeps): Router {
         }
         if (file.size > maxBytes) return { fileName: file.fileName, error: 'too_large' };
         const photoId = randomUUID().replaceAll('-', '');
-        const objectPath = variantPaths(photoId).original;
+        const objectPath = uploadPath(photoId);
         const upload = await store.createUploadTarget(objectPath, file.contentType);
         return { photoId, objectPath, upload };
       }),
@@ -65,19 +68,21 @@ export function uploadsRouter(deps: UploadsDeps): Router {
     if (!PHOTO_ID_PATTERN.test(photoId)) {
       throw new HttpError(400, 'invalid_photo_id', 'Invalid photo id');
     }
-    const paths = variantPaths(photoId);
-    const size = await store.size(paths.original);
+    const staged = uploadPath(photoId);
+    const size = await store.uploadSize(staged);
     if (size === null) throw new HttpError(404, 'not_uploaded', 'Original has not been uploaded');
     if (size > maxBytes) {
-      await store.deleteObject(paths.original);
+      await store.deleteUpload(staged);
       throw new HttpError(422, 'too_large', 'File is too large');
     }
-    const processed = await prepare(await store.read(paths.original), paths.original);
+    const processed = await prepare(await store.readUpload(staged), staged);
+    const paths = variantPaths(photoId);
     await Promise.all([
       store.write(paths.original, processed.original.data, processed.original.contentType),
       store.write(paths.w1000, processed.variants.w1000, 'image/jpeg'),
       store.write(paths.w300, processed.variants.w300, 'image/jpeg'),
     ]);
+    await store.deleteUpload(staged);
     const { width, height } = processed.original;
     const photo: Photo = { id: photoId, width, height, paths };
     res.json(photo);
@@ -93,7 +98,7 @@ export function uploadsRouter(deps: UploadsDeps): Router {
     } catch (err) {
       if (!(err instanceof InvalidImageError)) throw err;
       console.error(`Rejected upload ${path}`, err.message);
-      await store.deleteObject(path);
+      await store.deleteUpload(path);
       throw new HttpError(422, 'not_an_image', 'File is not a decodable image');
     }
   }

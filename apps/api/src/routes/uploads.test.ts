@@ -11,6 +11,7 @@ import { PhotoIndexRepo } from '../repo/photoIndex.ts';
 import { PostRepo } from '../repo/posts.ts';
 import { TermRepo } from '../repo/terms.ts';
 import { PhotoStore } from '../storage/bucket.ts';
+import { uploadPath } from './uploads.ts';
 import { jpeg, jpegWithGps } from '../test/images.ts';
 import { getIdToken, resetAuthEmulator } from '../test/idToken.ts';
 
@@ -90,6 +91,12 @@ describe('upload routes', () => {
   const complete = (photoId: string) =>
     request(app).post(`/v1/admin/uploads/${photoId}/complete`).set(bearer());
 
+  /** Reads a photo the way the site does, through the public bucket URL; null when missing. */
+  async function readPublic(path: string): Promise<Buffer | null> {
+    const res = await fetch(store.publicUrl(path));
+    return res.ok ? Buffer.from(await res.arrayBuffer()) : null;
+  }
+
   it('requires an admin', async () => {
     const res = await request(app).post('/v1/admin/uploads').send({ files: [] });
     expect(res.status).toBe(401);
@@ -97,7 +104,7 @@ describe('upload routes', () => {
 
   it('uploads directly to the bucket and builds variants on complete', async () => {
     const target = await uploadAs(await jpeg(2000, 1333), 1000);
-    expect(target.objectPath).toBe(variantPaths(target.photoId).original);
+    expect(target.objectPath).toBe(uploadPath(target.photoId));
     expect(target.upload.method).toBe('POST');
 
     const res = await complete(target.photoId);
@@ -110,14 +117,27 @@ describe('upload routes', () => {
       paths: variantPaths(target.photoId),
     });
     for (const path of Object.values(photo.paths)) {
-      expect((await store.read(path)).length).toBeGreaterThan(0);
-      expect((await fetch(store.publicUrl(path))).status).toBe(200);
+      expect((await readPublic(path))?.length).toBeGreaterThan(0);
     }
     for (const path of Object.values(photo.paths)) {
       const publicRes = await fetch(store.publicUrl(path));
       expect(publicRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
       expect(publicRes.headers.get('content-type')).toBe('image/jpeg');
     }
+  });
+
+  it('keeps the raw upload out of the public bucket and removes it after complete', async () => {
+    const input = await jpegWithGps(800, 600);
+    const target = await uploadAs(input);
+    const { original } = variantPaths(target.photoId);
+    expect(await readPublic(original)).toBeNull();
+    expect(await store.uploadSize(target.objectPath)).toBe(input.length);
+
+    expect((await complete(target.photoId)).status).toBe(200);
+
+    expect(await store.uploadSize(target.objectPath)).toBeNull();
+    expect(await readPublic(original)).not.toBeNull();
+    expect((await complete(target.photoId)).status).toBe(404);
   });
 
   it('answers per file: target, unsupported_type or too_large', async () => {
@@ -152,7 +172,7 @@ describe('upload routes', () => {
     const res = await complete(target.photoId);
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('not_an_image');
-    expect(await store.size(target.objectPath)).toBeNull();
+    expect(await store.uploadSize(target.objectPath)).toBeNull();
   });
 
   it('strips EXIF and GPS from the stored original without touching the pixels', async () => {
@@ -163,7 +183,7 @@ describe('upload routes', () => {
     const res = await complete(target.photoId);
 
     expect(res.status).toBe(200);
-    const stored = await store.read(target.objectPath);
+    const stored = (await readPublic(variantPaths(target.photoId).original)) as Buffer;
     expect((await sharp(stored).metadata()).exif).toBeUndefined();
     expect(stored.includes(Buffer.from('Exif'))).toBe(false);
     const raw = (data: Buffer) => sharp(data).raw().toBuffer();
@@ -177,7 +197,8 @@ describe('upload routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ width: 1000, height: 2000 });
-    const meta = await sharp(await store.read(target.objectPath)).metadata();
+    const stored = (await readPublic(variantPaths(target.photoId).original)) as Buffer;
+    const meta = await sharp(stored).metadata();
     expect(meta).toMatchObject({ width: 1000, height: 2000 });
     expect(meta.exif).toBeUndefined();
     expect(meta.orientation).toBeUndefined();
@@ -188,7 +209,7 @@ describe('upload routes', () => {
     const res = await complete(target.photoId);
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('not_an_image');
-    expect(await store.size(target.objectPath)).toBeNull();
+    expect(await store.uploadSize(target.objectPath)).toBeNull();
   });
 
   it('answers 422 too_large and deletes the object when the uploaded bytes exceed the limit', async () => {
@@ -196,7 +217,7 @@ describe('upload routes', () => {
     const res = await complete(target.photoId);
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('too_large');
-    expect(await store.size(target.objectPath)).toBeNull();
+    expect(await store.uploadSize(target.objectPath)).toBeNull();
   });
 
   it('answers 404 not_uploaded when nothing was uploaded', async () => {
@@ -214,10 +235,10 @@ describe('upload routes', () => {
     const target = await uploadAs(await jpeg(1200, 800));
     await complete(target.photoId);
     const paths = Object.values(variantPaths(target.photoId));
-    for (const path of paths) expect(await store.size(path)).not.toBeNull();
+    for (const path of paths) expect(await readPublic(path)).not.toBeNull();
 
     await store.deletePhoto(target.photoId);
 
-    for (const path of paths) expect(await store.size(path)).toBeNull();
+    for (const path of paths) expect(await readPublic(path)).toBeNull();
   });
 });
