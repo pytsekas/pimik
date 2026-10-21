@@ -50,6 +50,7 @@ async function devRenderer(app: Express, hmr: boolean): Promise<Renderer> {
   const vite = await createServer({
     root: ROOT,
     appType: 'custom',
+    configLoader: 'native',
     server: { middlewareMode: true, hmr, ws: hmr ? undefined : false },
   });
   app.use(vite.middlewares);
