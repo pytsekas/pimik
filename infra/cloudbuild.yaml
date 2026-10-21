@@ -1,0 +1,29 @@
+# Builds both images on amd64 and pushes them to Artifact Registry. Run through infra/deploy.sh.
+steps:
+  - id: api
+    name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
+    args: ['build', '--target', 'api', '-t', '${_REPO}/api:${_TAG}', '.']
+    waitFor: ['-']
+  - id: web
+    name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
+    args:
+      - build
+      - --target
+      - web
+      - -t
+      - ${_REPO}/web:${_TAG}
+      - --build-arg
+      - VITE_FIREBASE_API_KEY=${_VITE_FIREBASE_API_KEY}
+      - --build-arg
+      - VITE_FIREBASE_AUTH_DOMAIN=${_VITE_FIREBASE_AUTH_DOMAIN}
+      - --build-arg
+      - VITE_FIREBASE_PROJECT_ID=${_VITE_FIREBASE_PROJECT_ID}
+      - .
+    waitFor: ['-']
+images:
+  - ${_REPO}/api:${_TAG}
+  - ${_REPO}/web:${_TAG}
+options:
+  logging: CLOUD_LOGGING_ONLY

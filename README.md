@@ -68,10 +68,12 @@ Google account is not allowed".
 | `FIREBASE_AUTH_EMULATOR_HOST` | api                | Auth emulator `host:port`; the api refuses to start with it when `NODE_ENV=production`                                                         |
 | `STORAGE_EMULATOR_HOST`       | api, importer      | fake-gcs URL; the api refuses to start with it when `NODE_ENV=production`                                                                      |
 | `BUCKET`                      | api, importer      | Photo bucket name                                                                                                                              |
+| `UPLOAD_BUCKET`               | api                | Private bucket the admin uploads to before the api publishes the sanitized photo, default `<BUCKET>-uploads`                                   |
 | `IMAGE_BASE_URL`              | api, web, importer | Public base URL of the bucket, used to build photo URLs                                                                                        |
 | `ADMIN_EMAILS`                | api                | Comma-separated emails allowed into the admin; everyone else gets 403                                                                          |
 | `API_PORT`                    | api                | Listen port, default 3001                                                                                                                      |
 | `API_URL`                     | web                | Where the web server reaches the api                                                                                                           |
+| `API_AUDIENCE`                | web                | Optional; on Cloud Run the api URL, so every api call carries the web service account's ID token (the api is not public)                       |
 | `WEB_PORT`                    | web                | Listen port, default 3000                                                                                                                      |
 | `SITE_URL`                    | web                | Public site URL (feed, sitemap, canonical links), default `http://localhost:3000`, required when `NODE_ENV=production`; set it with `WEB_PORT` |
 | `WP_BASE_URL`                 | importer           | Optional, defaults to `https://vinyl.rehab`                                                                                                    |

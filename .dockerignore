@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/*.test.ts
+**/.omc
+.git
+.env
+.emulator-data
+.gcs-data
+firebase-export-*
+*.log
+test-results
+playwright-report
+e2e
+infra
+docs
+.superpowers

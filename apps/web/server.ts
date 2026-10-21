@@ -9,6 +9,7 @@ import express, {
   type RequestHandler,
 } from 'express';
 import { loadConfig } from './config.ts';
+import { createIdTokenSource, withIdToken } from './idToken.ts';
 import { createApiClient, type ApiClient } from './src/api.ts';
 import type { RenderResult, render as renderPage } from './src/entry-server.ts';
 import { renderFeed } from './src/feed.ts';
@@ -28,6 +29,8 @@ export type WebServerOptions = {
   apiClient?: ApiClient;
   /** Legacy-URL category lookup; defaults to a 60 s cache over `apiClient` (tests inject one). */
   categoryCache?: CategoryCache;
+  /** Fetch used for every call to the api, e.g. one that adds an ID token; defaults to `fetch`. */
+  apiFetch?: typeof fetch;
 };
 
 export type WebServer = { app: Express; close(): Promise<void> };
@@ -41,6 +44,8 @@ type Renderer = {
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const UPSTREAM_TIMEOUT_MS = 10_000;
+/** Completing an upload decodes and re-encodes a photo of up to 30 MB, which can take a while. */
+const COMPLETE_UPLOAD_TIMEOUT_MS = 60_000;
 const MAX_PROXY_BODY_BYTES = 5 * 1024 * 1024;
 const MAX_ADMIN_REQUEST_BYTES = 1024 * 1024;
 const ADMIN_API_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE']);
@@ -98,6 +103,12 @@ const PUBLIC_API_PATHS = [
 
 function isPublicApiPath(pathname: string): boolean {
   return PUBLIC_API_PATHS.some((pattern) => pattern.test(pathname));
+}
+
+export function upstreamTimeoutMs(pathname: string): number {
+  return /^\/v1\/admin\/uploads\/[^/]+\/complete$/.test(pathname)
+    ? COMPLETE_UPLOAD_TIMEOUT_MS
+    : UPSTREAM_TIMEOUT_MS;
 }
 
 async function readCapped(response: Response, maxBytes: number): Promise<Buffer | null> {
@@ -158,7 +169,7 @@ function readRequestCapped(req: Request, maxBytes: number): Promise<Buffer | nul
 }
 
 /** Forwards public api reads and admin calls so the browser can use same-origin `/v1`. */
-function apiProxy(apiUrl: string): RequestHandler {
+function apiProxy(apiUrl: string, apiFetch: typeof fetch): RequestHandler {
   const apiOrigin = new URL(apiUrl).origin;
   return async (req, res) => {
     const target = new URL(req.originalUrl, apiUrl);
@@ -186,11 +197,11 @@ function apiProxy(apiUrl: string): RequestHandler {
       }
     }
     try {
-      const upstream = await fetch(target, {
+      const upstream = await apiFetch(target, {
         method: req.method,
         headers,
         body: requestBody && Uint8Array.from(requestBody),
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(upstreamTimeoutMs(target.pathname)),
       });
       const body = await readCapped(upstream, MAX_PROXY_BODY_BYTES);
       if (body === null) {
@@ -249,7 +260,8 @@ function fillTemplate(
 export async function createWebServer(options: WebServerOptions): Promise<WebServer> {
   const app = express();
   app.disable('x-powered-by');
-  const api = options.apiClient ?? createApiClient(options.apiUrl);
+  const apiFetch = options.apiFetch ?? fetch;
+  const api = options.apiClient ?? createApiClient(options.apiUrl, apiFetch);
   const siteUrl = (options.siteUrl ?? '').replace(/\/+$/, '');
   const siteConfig = { imageBaseUrl: options.imageBaseUrl, siteUrl };
   const categoryCache = options.categoryCache ?? createCategoryCache(api);
@@ -257,7 +269,7 @@ export async function createWebServer(options: WebServerOptions): Promise<WebSer
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
-  app.use('/v1', apiProxy(options.apiUrl));
+  app.use('/v1', apiProxy(options.apiUrl, apiFetch));
 
   const renderer = options.dev
     ? await devRenderer(app, options.hmr ?? true)
@@ -332,6 +344,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     imageBaseUrl: config.imageBaseUrl,
     siteUrl: config.siteUrl,
     dev: process.env.NODE_ENV !== 'production',
+    apiFetch: config.apiAudience
+      ? withIdToken(fetch, createIdTokenSource(config.apiAudience))
+      : fetch,
   });
   app.listen(config.port, () => {
     console.log(`web listening on http://localhost:${config.port}`);

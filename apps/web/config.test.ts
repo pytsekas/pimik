@@ -13,6 +13,12 @@ describe('loadConfig', () => {
     expect(config.imageBaseUrl).toBe('http://localhost:4443/vinyl-rehab-photos');
   });
 
+  it('reads API_AUDIENCE only when set', () => {
+    expect(loadConfig(BASE).apiAudience).toBeUndefined();
+    const audience = 'https://api-abc-lz.a.run.app';
+    expect(loadConfig({ ...BASE, API_AUDIENCE: audience }).apiAudience).toBe(audience);
+  });
+
   it('requires SITE_URL in production', () => {
     expect(() => loadConfig({ ...BASE, NODE_ENV: 'production' })).toThrow('SITE_URL');
   });

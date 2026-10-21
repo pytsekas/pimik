@@ -19,8 +19,10 @@ data "google_firebase_web_app_config" "admin" {
 
 # Firebase Auth (upgraded to Identity Platform): Google sign-in only.
 resource "google_identity_platform_config" "default" {
-  project            = var.project_id
-  authorized_domains = var.auth_domains
+  project = var.project_id
+  authorized_domains = concat(var.auth_domains, [
+    for url in google_cloud_run_v2_service.web.urls : trimprefix(url, "https://")
+  ])
 
   sign_in {
     allow_duplicate_emails = false

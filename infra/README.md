@@ -12,6 +12,23 @@ terraform -chdir=infra/main apply main.tfplan
 
 Firestore indexes come from the repo's `firestore.indexes.json`, the same file the emulators use.
 
+## Deploying the apps
+
+```sh
+infra/deploy.sh
+```
+
+Builds both images with Cloud Build (amd64, service account `vinyl-build`), tags them with the git
+commit, and points the `vinyl-api` and `vinyl-web` Cloud Run services at them. Terraform creates
+the services with a placeholder image and ignores image changes, so applying never rolls back a
+deploy.
+
+- `vinyl-web` is public; `vinyl-api` only accepts the `vinyl-web` service account, which sends a
+  Google ID token in `X-Serverless-Authorization` (`API_AUDIENCE`).
+- Browser uploads go to the private `…-photos-uploads` bucket; the api publishes only sanitized
+  photos to the public `…-photos` bucket. Leftover uploads are deleted after a day.
+- `ADMIN_EMAILS` comes from `admin_emails` in `main/terraform.tfvars`.
+
 ## Manual steps (Google offers no API for them)
 
 ### Google sign-in OAuth client

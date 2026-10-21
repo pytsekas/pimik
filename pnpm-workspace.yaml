@@ -5,3 +5,4 @@ packages:
 allowBuilds:
   protobufjs: false
   '@firebase/util': false
+  re2: false

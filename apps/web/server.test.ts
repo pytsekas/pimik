@@ -10,7 +10,7 @@ import type { Page, Post } from '@vinyl/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { NotFoundError, type ApiClient } from './src/api.ts';
-import { createWebServer, type WebServer } from './server.ts';
+import { createWebServer, upstreamTimeoutMs, type WebServer } from './server.ts';
 
 const XSS_TITLE = '</script><script>alert(1)';
 
@@ -570,5 +570,45 @@ describe('web feed and sitemap', () => {
     expect(res.text).toContain('<loc>http://site.test/tag/ambient/</loc>');
     expect(res.text).toContain('<loc>http://site.test/category/vinyl/</loc>');
     expect(res.text).not.toContain('/category/empty/');
+  });
+});
+
+describe('web apiFetch', () => {
+  it('sends the proxy and the SSR api client through apiFetch', async () => {
+    const { port } = upstream.address() as AddressInfo;
+    const apiFetch: typeof fetch = (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set('x-serverless-authorization', 'Bearer service');
+      return fetch(input, { ...init, headers });
+    };
+    const viaFetch = await createWebServer({
+      apiUrl: `http://127.0.0.1:${port}`,
+      imageBaseUrl: 'http://images.test/bucket',
+      siteUrl: 'http://site.test',
+      dev: true,
+      hmr: false,
+      apiFetch,
+    });
+    try {
+      upstreamDetails.length = 0;
+      await request(viaFetch.app).get('/v1/admin/posts').set('Authorization', 'Bearer abc');
+      await request(viaFetch.app).get('/sitemap.xml');
+
+      expect(upstreamDetails.length).toBeGreaterThanOrEqual(2);
+      for (const call of upstreamDetails) {
+        expect(call.headers['x-serverless-authorization']).toBe('Bearer service');
+      }
+      expect(upstreamDetails[0]?.headers.authorization).toBe('Bearer abc');
+    } finally {
+      await viaFetch.close();
+    }
+  });
+});
+
+describe('upstreamTimeoutMs', () => {
+  it('gives completing an upload 60 s and everything else 10 s', () => {
+    expect(upstreamTimeoutMs('/v1/admin/uploads/abc123/complete')).toBe(60_000);
+    expect(upstreamTimeoutMs('/v1/admin/uploads')).toBe(10_000);
+    expect(upstreamTimeoutMs('/v1/posts')).toBe(10_000);
   });
 });
