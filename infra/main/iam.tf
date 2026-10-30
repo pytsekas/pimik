@@ -1,20 +1,20 @@
 # One service account per workload, each with only what it uses.
 
 resource "google_service_account" "api" {
-  account_id   = "vinyl-api"
-  display_name = "Vinyl Rehab api (Cloud Run)"
+  account_id   = "${var.name_prefix}-api"
+  display_name = "${var.name_prefix} api (Cloud Run)"
   depends_on   = [google_project_service.enabled]
 }
 
 resource "google_service_account" "web" {
-  account_id   = "vinyl-web"
-  display_name = "Vinyl Rehab web (Cloud Run)"
+  account_id   = "${var.name_prefix}-web"
+  display_name = "${var.name_prefix} web (Cloud Run)"
   depends_on   = [google_project_service.enabled]
 }
 
 resource "google_service_account" "build" {
-  account_id   = "vinyl-build"
-  display_name = "Vinyl Rehab image builds (Cloud Build)"
+  account_id   = "${var.name_prefix}-build"
+  display_name = "${var.name_prefix} image builds (Cloud Build)"
   depends_on   = [google_project_service.enabled]
 }
 

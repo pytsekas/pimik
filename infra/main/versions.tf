@@ -13,7 +13,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "experiment-stash-tfstate"
+    bucket = "pimik-tfstate"
     prefix = "main"
   }
 }

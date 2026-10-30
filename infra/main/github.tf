@@ -3,7 +3,7 @@
 # branches don't.
 
 resource "google_iam_workload_identity_pool" "github" {
-  workload_identity_pool_id = "github"
+  workload_identity_pool_id = "${var.name_prefix}-github"
   display_name              = "GitHub Actions"
   depends_on                = [google_project_service.enabled]
 }
@@ -34,8 +34,8 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 }
 
 resource "google_service_account" "deploy" {
-  account_id   = "vinyl-deploy"
-  display_name = "Vinyl Rehab deploys (GitHub Actions)"
+  account_id   = "${var.name_prefix}-deploy"
+  display_name = "${var.name_prefix} deploys (GitHub Actions)"
   depends_on   = [google_project_service.enabled]
 }
 

@@ -132,8 +132,11 @@ jobs:
       - name: Deploy to Cloud Run
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          API_SERVICE: ${{ vars.GCP_API_SERVICE }}
+          WEB_SERVICE: ${{ vars.GCP_WEB_SERVICE }}
         run: |
-          for app in api web; do
-            gcloud run services update "vinyl-$app" --region="$REGION" --image="$REPO/$app:$TAG" --quiet
-            gcloud run services update-traffic "vinyl-$app" --region="$REGION" --to-latest --quiet
+          for pair in "api:$API_SERVICE" "web:$WEB_SERVICE"; do
+            app=${pair%%:*} service=${pair#*:}
+            gcloud run services update "$service" --region="$REGION" --image="$REPO/$app:$TAG" --quiet
+            gcloud run services update-traffic "$service" --region="$REGION" --to-latest --quiet
           done

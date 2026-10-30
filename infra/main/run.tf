@@ -6,7 +6,7 @@ locals {
 }
 
 resource "google_cloud_run_v2_service" "api" {
-  name     = "vinyl-api"
+  name     = "${var.name_prefix}-api"
   location = var.region
   # Public ingress, but only principals with run.invoker (the web service account) get through.
   ingress = "INGRESS_TRAFFIC_ALL"
@@ -63,7 +63,7 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 resource "google_cloud_run_v2_service" "web" {
-  name     = "vinyl-web"
+  name     = "${var.name_prefix}-web"
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
 
