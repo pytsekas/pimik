@@ -80,3 +80,16 @@ output "deploy" {
     region              = var.region
   }
 }
+
+output "github_variables" {
+  description = "Repository variables the GitHub Actions deploy job reads (see infra/README.md)"
+  value = {
+    GCP_WIF_PROVIDER          = google_iam_workload_identity_pool_provider.github.name
+    GCP_DEPLOY_SA             = google_service_account.deploy.email
+    GCP_REGION                = var.region
+    GCP_IMAGE_REPO            = local.image_repo
+    VITE_FIREBASE_API_KEY     = data.google_firebase_web_app_config.admin.api_key
+    VITE_FIREBASE_AUTH_DOMAIN = data.google_firebase_web_app_config.admin.auth_domain
+    VITE_FIREBASE_PROJECT_ID  = var.project_id
+  }
+}

@@ -29,6 +29,50 @@ deploy.
   photos to the public `…-photos` bucket. Leftover uploads are deleted after a day.
 - `ADMIN_EMAILS` comes from `admin_emails` in `main/terraform.tfvars`.
 
+## CI and automatic deploys
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`:
+
+- `check`: `pnpm check`, `pnpm test`, the web build and `pnpm e2e`, with the Firestore and Auth
+  emulators and a fake-gcs-server container, as locally.
+- `deploy` (push to `main` only, after `check` passes): builds both Dockerfile targets, pushes
+  them to Artifact Registry tagged with the short commit, and updates `vinyl-api`, then
+  `vinyl-web`. Deploys never overlap; a newer push replaces one still waiting, so the latest
+  commit always ends up deployed.
+
+GitHub holds no keys. The job signs in through Workload Identity Federation (`main/github.tf`) as
+`vinyl-deploy`, which may only push images and update the two services. Only push events on
+`main` running `.github/workflows/ci.yml` of the repository with id `github_repository_id` can
+sign in, so pull requests, forks, other workflows and a repo that later takes over the name get
+nothing. `vinyl-deploy` may run either service as either runtime account (`vinyl-api` or
+`vinyl-web`), so treat changes to `ci.yml` on `main` like changes to IAM.
+
+The deploy job is skipped until the repository variables are set. After applying `main/`:
+
+```sh
+terraform -chdir=infra/main output -json github_variables \
+  | jq -r 'to_entries[] | "\(.key)\t\(.value)"' \
+  | while IFS="$(printf '\t')" read -r name value; do gh variable set "$name" --body "$value"; done
+```
+
+They are variables, not secrets: the Firebase web config is public by design and the rest are
+resource names.
+
+Rolling back is pointing traffic at the previous revision:
+
+```sh
+gcloud run revisions list --service=vinyl-web --region=europe-north1
+gcloud run services update-traffic vinyl-web --region=europe-north1 --to-revisions=REVISION=100
+```
+
+A pinned revision keeps all traffic until the next CI deploy, which sends it back to the latest
+revision. `infra/deploy.sh` still works as a manual deploy through Cloud Build, but it doesn't
+undo a pin. After it, run this for each pinned service (`vinyl-api` or `vinyl-web`):
+
+```sh
+gcloud run services update-traffic vinyl-web --region=europe-north1 --to-latest
+```
+
 ## Site address
 
 Until the domain moves, the site lives at https://experiment-stash.web.app (Firebase Hosting, which

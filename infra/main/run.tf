@@ -1,4 +1,4 @@
-# Terraform owns the services; infra/deploy.sh owns which image runs (hence ignore_changes).
+# Terraform owns the services; CI or infra/deploy.sh owns which image runs (hence ignore_changes).
 # The first apply starts Google's placeholder image until the first deploy.
 
 locals {

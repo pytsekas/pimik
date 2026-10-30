@@ -48,3 +48,15 @@ variable "auth_domains" {
     "vinyl.rehab",
   ]
 }
+
+variable "github_repository" {
+  description = "GitHub repository (owner/name) whose main branch deploys"
+  type        = string
+  default     = "pytsekas/pimik"
+}
+
+variable "github_repository_id" {
+  description = "Numeric id of github_repository (gh api repos/OWNER/NAME --jq .id); survives renames"
+  type        = string
+  default     = "1422126308"
+}
