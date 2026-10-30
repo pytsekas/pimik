@@ -33,6 +33,7 @@ async function onSignIn(): Promise<void> {
       <b>Vinyl Rehab admin</b>
       <span v-if="user && !forbidden" class="who">
         signed in as {{ user.email }} · <RouterLink to="/admin/">all posts</RouterLink> ·
+        <RouterLink to="/admin/stats/">statistics</RouterLink> ·
         <button type="button" class="link" @click="onSignOut">sign out</button>
       </span>
     </header>
