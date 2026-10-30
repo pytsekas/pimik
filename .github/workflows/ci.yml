@@ -1,5 +1,6 @@
 # Every pull request and push: lint, types, unit tests, web build and Playwright e2e.
 # Pushes to main then build both images and roll them out to Cloud Run (see infra/README.md).
+# Actions are pinned to commit SHAs; Dependabot (.github/dependabot.yml) bumps them.
 name: CI
 
 on:
@@ -19,22 +20,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           cache: pnpm
 
       # The Firestore emulator is a Java program.
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/firebase/emulators
           key: firebase-emulators-${{ hashFiles('pnpm-lock.yaml') }}
@@ -57,7 +60,7 @@ jobs:
       - run: pnpm e2e
 
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-traces
           path: test-results/
@@ -73,7 +76,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # Deploys queue instead of overlapping or cancelling each other.
+    # Deploys never overlap; a newer push replaces one still waiting.
     concurrency:
       group: deploy
       cancel-in-progress: false
@@ -81,36 +84,38 @@ jobs:
       REGION: ${{ vars.GCP_REGION }}
       REPO: ${{ vars.GCP_IMAGE_REPO }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Image tag
         id: tag
         run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SA }}
 
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
       - run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
+      # No layer cache: the Dockerfile copies the whole repo before installing, so every commit
+      # misses it anyway.
       - name: Build and push api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           target: api
           push: true
           provenance: false
           tags: ${{ env.REPO }}/api:${{ steps.tag.outputs.tag }}
-          cache-from: type=gha,scope=api
-          cache-to: type=gha,scope=api,mode=max
 
       - name: Build and push web
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           target: web
@@ -121,8 +126,6 @@ jobs:
             VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
             VITE_FIREBASE_AUTH_DOMAIN=${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
             VITE_FIREBASE_PROJECT_ID=${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
 
       # The api first, so the web revision never calls an older api than it was built with.
       # --to-latest undoes a manual rollback, which pins traffic to an older revision.

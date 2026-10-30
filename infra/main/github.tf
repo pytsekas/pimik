@@ -20,10 +20,12 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.ref"           = "assertion.ref"
   }
   # The numeric id survives a rename, so a new repo that takes over the old name gets nothing.
+  # job_workflow_ref limits it to ci.yml, so another workflow on main can't deploy.
   attribute_condition = join(" && ", [
     "assertion.repository_id == '${var.github_repository_id}'",
     "assertion.ref == 'refs/heads/main'",
     "assertion.event_name == 'push'",
+    "assertion.job_workflow_ref == '${var.github_repository}/.github/workflows/ci.yml@refs/heads/main'",
   ])
 
   oidc {

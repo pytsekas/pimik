@@ -35,14 +35,17 @@ deploy.
 
 - `check`: `pnpm check`, `pnpm test`, the web build and `pnpm e2e`, with the Firestore and Auth
   emulators and a fake-gcs-server container, as locally.
-- `deploy` (push to `main` only, after `check` passes): builds both Dockerfile targets with the
-  GitHub Actions layer cache, pushes them to Artifact Registry tagged with the short commit, and
-  updates `vinyl-api`, then `vinyl-web`. Deploys queue; they never overlap.
+- `deploy` (push to `main` only, after `check` passes): builds both Dockerfile targets, pushes
+  them to Artifact Registry tagged with the short commit, and updates `vinyl-api`, then
+  `vinyl-web`. Deploys never overlap; a newer push replaces one still waiting, so the latest
+  commit always ends up deployed.
 
 GitHub holds no keys. The job signs in through Workload Identity Federation (`main/github.tf`) as
-`vinyl-deploy`, which may only push images, update the two services and run them as their own
-service accounts. Only push events on `main` of the repository with id `github_repository_id` get
-a token, so pull requests, forks and a repo that later takes over the name get nothing.
+`vinyl-deploy`, which may only push images and update the two services. Only push events on
+`main` running `.github/workflows/ci.yml` of the repository with id `github_repository_id` can
+sign in, so pull requests, forks, other workflows and a repo that later takes over the name get
+nothing. `vinyl-deploy` may run either service as either runtime account (`vinyl-api` or
+`vinyl-web`), so treat changes to `ci.yml` on `main` like changes to IAM.
 
 The deploy job is skipped until the repository variables are set. After applying `main/`:
 
@@ -64,7 +67,11 @@ gcloud run services update-traffic vinyl-web --region=europe-north1 --to-revisio
 
 A pinned revision keeps all traffic until the next CI deploy, which sends it back to the latest
 revision. `infra/deploy.sh` still works as a manual deploy through Cloud Build, but it doesn't
-undo a pin; run `gcloud run services update-traffic vinyl-web --to-latest` after it.
+undo a pin. After it, run this for each pinned service (`vinyl-api` or `vinyl-web`):
+
+```sh
+gcloud run services update-traffic vinyl-web --region=europe-north1 --to-latest
+```
 
 ## Site address
 
