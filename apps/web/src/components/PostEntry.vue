@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Post } from '@vinyl/shared';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { renderMarkdown } from '../markdown.ts';
 import { photoUrl } from '../photoUrl.ts';
@@ -20,10 +20,48 @@ const props = withDefaults(
   { full: false, lazy: false, tagNames: () => ({}) },
 );
 
-const selected = ref(0);
-const lightboxOpen = ref(false);
+// A thumbnail click fades the big photo out, swaps it while invisible and fades it back in once
+// the new photo has loaded, so a half-loaded photo never shows. Keep in step with the CSS transition.
+const FADE_MS = 150;
 
-const current = computed(() => props.post.photos[selected.value]);
+const selected = ref(0);
+const shown = ref(0);
+// Whether the photo in `shown` has finished loading; the server-rendered one counts as loaded.
+const loaded = ref(true);
+const fading = ref(false);
+const lightboxOpen = ref(false);
+let swapTimer: ReturnType<typeof setTimeout> | undefined;
+
+const current = computed(() => props.post.photos[shown.value]);
+
+const show = (index: number) => {
+  if (shown.value === index) return;
+  shown.value = index;
+  loaded.value = false;
+};
+
+watch(selected, (index) => {
+  clearTimeout(swapTimer);
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    show(index);
+    fading.value = false;
+    return;
+  }
+  fading.value = true;
+  swapTimer = setTimeout(() => {
+    show(index);
+    // Back on the photo already showing: its load event may have come already.
+    if (loaded.value) fading.value = false;
+  }, FADE_MS);
+});
+
+const photoReady = () => {
+  loaded.value = true;
+  if (shown.value === selected.value) fading.value = false;
+};
+
+onBeforeUnmount(() => clearTimeout(swapTimer));
+
 const postPath = computed(
   () => `/${encodeURIComponent(props.post.categorySlug)}/${encodeURIComponent(props.post.slug)}/`,
 );
@@ -47,6 +85,7 @@ const srcset = computed(() => {
     <div v-if="current" class="photo-block">
       <img
         class="hero"
+        :class="{ fading }"
         :src="photoUrl(imageBaseUrl, current.paths.original)"
         :srcset="srcset"
         sizes="(max-width: 2000px) 100vw, 2000px"
@@ -56,6 +95,8 @@ const srcset = computed(() => {
         :loading="lazy ? 'lazy' : undefined"
         decoding="async"
         @click="lightboxOpen = true"
+        @load="photoReady"
+        @error="photoReady"
       />
       <ThumbStrip
         v-if="post.photos.length > 1"
@@ -114,6 +155,11 @@ const srcset = computed(() => {
   width: 100%;
   height: auto;
   cursor: zoom-in;
+  transition: opacity 150ms ease; /* FADE_MS */
+}
+
+.hero.fading {
+  opacity: 0;
 }
 
 .meta,

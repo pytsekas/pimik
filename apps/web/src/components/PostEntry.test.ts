@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { mount, RouterLinkStub } from '@vue/test-utils';
-import { describe, expect, it } from 'vite-plus/test';
-import { testPost } from '../testFixtures.ts';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { photo, testPost } from '../testFixtures.ts';
 import PostEntry from './PostEntry.vue';
 
 const mountEntry = (post = testPost(), props: Record<string, unknown> = {}) =>
@@ -14,6 +14,11 @@ const links = (wrapper: ReturnType<typeof mountEntry>) =>
   wrapper.findAllComponents(RouterLinkStub).map((link) => link.props('to'));
 
 describe('PostEntry', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it('sizes the big photo from the current photo and builds the srcset', () => {
     const hero = mountEntry().find('img.hero');
     expect(hero.attributes('width')).toBe('2000');
@@ -27,12 +32,84 @@ describe('PostEntry', () => {
   });
 
   it('shows the selected photo uncropped at its own height', async () => {
+    vi.useFakeTimers();
     const wrapper = mountEntry();
     await wrapper.findAll('.thumbs button')[1]?.trigger('click');
+    await vi.runAllTimersAsync();
     const hero = wrapper.find('img.hero');
     expect(hero.attributes('height')).toBe('2000');
     expect(hero.attributes('src')).toContain('photos/p1/original.jpg');
     expect(hero.attributes('style')).toBeUndefined();
+  });
+
+  it('fades the big photo out, swaps it and fades in once the new photo has loaded', async () => {
+    vi.useFakeTimers();
+    const wrapper = mountEntry();
+    const hero = () => wrapper.find('img.hero');
+    await wrapper.findAll('.thumbs button')[1]?.trigger('click');
+    expect(hero().classes()).toContain('fading');
+    expect(hero().attributes('src')).toContain('photos/p0/');
+
+    await vi.advanceTimersByTimeAsync(150);
+    expect(hero().attributes('src')).toContain('photos/p1/');
+    expect(hero().classes()).toContain('fading');
+
+    await hero().trigger('load');
+    expect(hero().classes()).not.toContain('fading');
+  });
+
+  it('stays hidden when the photo it is leaving finishes loading', async () => {
+    vi.useFakeTimers();
+    const wrapper = mountEntry();
+    const hero = () => wrapper.find('img.hero');
+    await wrapper.findAll('.thumbs button')[1]?.trigger('click');
+    await hero().trigger('load');
+    expect(hero().classes()).toContain('fading');
+    expect(hero().attributes('src')).toContain('photos/p0/');
+  });
+
+  it('fades back in when the new photo fails to load', async () => {
+    vi.useFakeTimers();
+    const wrapper = mountEntry();
+    const hero = () => wrapper.find('img.hero');
+    await wrapper.findAll('.thumbs button')[1]?.trigger('click');
+    await vi.advanceTimersByTimeAsync(150);
+    await hero().trigger('error');
+    expect(hero().classes()).not.toContain('fading');
+  });
+
+  it('waits for the load when the choice returns to a photo still loading', async () => {
+    vi.useFakeTimers();
+    const wrapper = mountEntry(testPost({ photos: [photo(0), photo(1), photo(2)] }));
+    const hero = () => wrapper.find('img.hero');
+    const thumbs = wrapper.findAll('.thumbs button');
+    await thumbs[1]?.trigger('click');
+    await vi.advanceTimersByTimeAsync(150);
+    await thumbs[2]?.trigger('click');
+    await thumbs[1]?.trigger('click');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(hero().classes()).toContain('fading');
+    await hero().trigger('load');
+    expect(hero().classes()).not.toContain('fading');
+  });
+
+  it('fades back in without a load when the choice returns to the photo showing', async () => {
+    vi.useFakeTimers();
+    const wrapper = mountEntry();
+    const thumbs = wrapper.findAll('.thumbs button');
+    await thumbs[1]?.trigger('click');
+    await thumbs[0]?.trigger('click');
+    await vi.advanceTimersByTimeAsync(150);
+    expect(wrapper.find('img.hero').classes()).not.toContain('fading');
+    expect(wrapper.find('img.hero').attributes('src')).toContain('photos/p0/');
+  });
+
+  it('swaps at once when the visitor prefers reduced motion', async () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    const wrapper = mountEntry();
+    await wrapper.findAll('.thumbs button')[1]?.trigger('click');
+    expect(wrapper.find('img.hero').attributes('src')).toContain('photos/p1/');
+    expect(wrapper.find('img.hero').classes()).not.toContain('fading');
   });
 
   it('lazy-loads the big photo when asked to', () => {
