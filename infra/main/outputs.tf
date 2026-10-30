@@ -26,6 +26,41 @@ output "firebase_web_config" {
   }
 }
 
+output "admin_emails" {
+  description = "ADMIN_EMAILS as the api receives it"
+  value       = join(",", var.admin_emails)
+}
+
+output "hosting_dns_records" {
+  description = "DNS records Firebase Hosting wants for the domain (empty until custom_domain_enabled)"
+  value = {
+    for domain in concat(
+      google_firebase_hosting_custom_domain.apex,
+      google_firebase_hosting_custom_domain.www,
+      ) : domain.custom_domain => {
+      host_state      = domain.host_state
+      ownership_state = domain.ownership_state
+      desired = flatten([
+        for update in domain.required_dns_updates : [
+          for desired in update.desired : [
+            for record in desired.records : {
+              domain = record.domain_name
+              type   = record.type
+              value  = record.rdata
+              action = record.required_action
+            }
+          ]
+        ]
+      ])
+    }
+  }
+}
+
+output "site_url" {
+  description = "Where the site is served until the custom domain is enabled"
+  value       = "https://${var.project_id}.web.app"
+}
+
 output "web_url" {
   description = "The site's Cloud Run URL (until the domain points at it)"
   value       = google_cloud_run_v2_service.web.uri
