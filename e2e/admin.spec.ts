@@ -85,10 +85,10 @@ test('admin publishes a post with reordered photos, then deletes it', async ({ p
 
   await page.goto('/admin/');
   await page.getByRole('link', { name: 'statistics' }).click();
-  const e2eTag = page.locator('.tags li', {
-    has: page.getByRole('link', { name: 'e2e', exact: true }),
-  });
-  await expect(e2eTag.locator('span')).toHaveText('1');
+  const e2eTag = page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('link', { name: 'e2e', exact: true }) });
+  await expect(e2eTag.getByLabel('posts')).toHaveText('1');
   await page.getByRole('link', { name: 'all posts' }).click();
 
   const row = page.locator('.rows li', { hasText: TITLE });

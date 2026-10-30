@@ -24,10 +24,11 @@ describe('StatsPage', () => {
     ]);
     const wrapper = await mountStats(api);
 
-    const totals = wrapper.findAll('.totals div').map((box) => box.text());
-    expect(totals[0]).toContain('2');
-    expect(totals[0]).toContain('published 1 · drafts 1');
-    expect(totals[1]).toContain('3');
+    expect(wrapper.findAll('.totals dd').map((value) => value.text())).toEqual([
+      '2',
+      'published 1 · drafts 1',
+      '3',
+    ]);
 
     const rows = wrapper
       .findAll('.categories tbody tr')
@@ -38,12 +39,28 @@ describe('StatsPage', () => {
     ]);
 
     const tags = wrapper.findAll('.tags li');
-    expect(tags.map((tag) => [tag.find('a').text(), tag.find('span').text()])).toEqual([
-      ['bowie', '1'],
-      ['ambient', '0'],
-    ]);
+    expect(tags.map((tag) => tag.find('.count').text())).toEqual(['1', '0']);
     expect(tags[0]?.find('a').attributes('href')).toBe('/tag/bowie/');
+    expect(tags[1]?.find('a').exists()).toBe(false);
+    expect(tags[1]?.find('.name').text()).toBe('ambient');
     expect(tags[1]?.classes()).toContain('unused');
+  });
+
+  it('does not link a tag only drafts use, since its public page does not exist', async () => {
+    const api = mockApi(uploadFile);
+    api.listPosts.mockResolvedValue([post({ status: 'draft', tagSlugs: ['bowie'] })]);
+    const wrapper = await mountStats(api);
+    const bowie = wrapper.findAll('.tags li')[0];
+    expect(bowie?.find('.name').text()).toBe('bowie');
+    expect(bowie?.find('.count').text()).toBe('1');
+    expect(bowie?.find('a').exists()).toBe(false);
+  });
+
+  it('says when there are no tags', async () => {
+    const api = mockApi(uploadFile);
+    api.listTags.mockResolvedValue([]);
+    const wrapper = await mountStats(api);
+    expect(wrapper.text()).toContain('No tags yet.');
   });
 
   it('says so when loading fails', async () => {

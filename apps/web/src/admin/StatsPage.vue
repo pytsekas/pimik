@@ -42,6 +42,8 @@ const tagUrl = (slug: string) => `/tag/${encodeURIComponent(slug)}/`;
         </div>
       </dl>
 
+      <p class="muted note">Category and tag counts include drafts.</p>
+
       <h2>By category</h2>
       <table class="categories">
         <thead>
@@ -66,8 +68,9 @@ const tagUrl = (slug: string) => `/tag/${encodeURIComponent(slug)}/`;
       <p v-if="stats.tags.length === 0" class="muted">No tags yet.</p>
       <ul v-else class="tags">
         <li v-for="tag in stats.tags" :key="tag.slug" :class="{ unused: tag.posts === 0 }">
-          <a :href="tagUrl(tag.slug)" target="_blank">{{ tag.name }}</a>
-          <span class="muted">{{ tag.posts }}</span>
+          <a v-if="tag.published > 0" :href="tagUrl(tag.slug)" target="_blank">{{ tag.name }}</a>
+          <span v-else class="name">{{ tag.name }}</span>
+          <span class="count muted" :aria-label="`${tag.posts} posts`">{{ tag.posts }}</span>
         </li>
       </ul>
     </template>
@@ -138,8 +141,12 @@ th {
 .tags a {
   color: #2c3033;
 }
-.tags .unused a {
-  color: #999;
+.tags .unused .name {
+  color: #767676;
+}
+.note {
+  margin: 8px 0 0;
+  font-size: 12px;
 }
 .error {
   color: #b22;

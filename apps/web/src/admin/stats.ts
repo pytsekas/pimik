@@ -1,7 +1,9 @@
 import type { Post, Term } from '@vinyl/shared';
 
-export type CategoryStats = { slug: string; name: string; posts: number; photos: number };
-export type TagStats = { slug: string; name: string; posts: number };
+type TermCount = { slug: string; name: string; posts: number };
+export type CategoryStats = TermCount & { photos: number };
+/** `published` decides whether the public tag page exists; it 404s without published posts. */
+export type TagStats = TermCount & { published: number };
 
 export type Stats = {
   posts: number;
@@ -25,7 +27,9 @@ export function computeStats(posts: Post[], categories: Term[], tags: Term[]): S
     post.photos.forEach((photo) => ids.add(photo.id));
     categoryPhotos.set(post.categorySlug, ids);
   }
-  const tagPosts = countBy(posts.flatMap((post) => [...new Set(post.tagSlugs)]));
+  const tagSlugs = (list: Post[]) => countBy(list.flatMap((post) => [...new Set(post.tagSlugs)]));
+  const tagPosts = tagSlugs(posts);
+  const tagPublished = tagSlugs(posts.filter((post) => post.status === 'published'));
 
   return {
     posts: posts.length,
@@ -34,8 +38,10 @@ export function computeStats(posts: Post[], categories: Term[], tags: Term[]): S
     photos: new Set(posts.flatMap((post) => post.photos.map((photo) => photo.id))).size,
     categories: withNames(categories, categoryPosts)
       .map((term) => ({ ...term, photos: categoryPhotos.get(term.slug)?.size ?? 0 }))
-      .sort(byUse),
-    tags: withNames(tags, tagPosts).sort(byUse),
+      .sort((a, b) => b.posts - a.posts || b.photos - a.photos || byName(a, b)),
+    tags: withNames(tags, tagPosts)
+      .map((term) => ({ ...term, published: tagPublished.get(term.slug) ?? 0 }))
+      .sort((a, b) => b.posts - a.posts || byName(a, b)),
   };
 }
 
@@ -45,12 +51,12 @@ function countBy(slugs: string[]): Map<string, number> {
   return counts;
 }
 
-function withNames(terms: Term[], counts: Map<string, number>): TagStats[] {
+function withNames(terms: Term[], counts: Map<string, number>): TermCount[] {
   const names = new Map(terms.map((term) => [term.slug, term.name]));
   counts.forEach((_count, slug) => names.has(slug) || names.set(slug, slug));
   return [...names].map(([slug, name]) => ({ slug, name, posts: counts.get(slug) ?? 0 }));
 }
 
-function byUse(a: TagStats & { photos?: number }, b: TagStats & { photos?: number }): number {
-  return b.posts - a.posts || (b.photos ?? 0) - (a.photos ?? 0) || a.name.localeCompare(b.name);
+function byName(a: TermCount, b: TermCount): number {
+  return a.name.localeCompare(b.name);
 }

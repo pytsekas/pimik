@@ -44,25 +44,25 @@ describe('computeStats', () => {
     ]);
   });
 
-  it('lists every tag with its post count, most used first, then by name', () => {
+  it('lists every tag with its post and published counts, most used first, then by name', () => {
     const stats = computeStats(
       [
-        post({ id: 'p1', tagSlugs: ['bowie', 'ambient'] }),
+        post({ id: 'p1', status: 'published', tagSlugs: ['bowie', 'ambient'] }),
         post({ id: 'p2', tagSlugs: ['bowie', 'bowie'] }),
       ],
       categories,
       tags,
     );
     expect(stats.tags).toEqual([
-      { slug: 'bowie', name: 'David Bowie', posts: 2 },
-      { slug: 'ambient', name: 'ambient', posts: 1 },
-      { slug: 'unused', name: 'unused', posts: 0 },
+      { slug: 'bowie', name: 'David Bowie', posts: 2, published: 1 },
+      { slug: 'ambient', name: 'ambient', posts: 1, published: 1 },
+      { slug: 'unused', name: 'unused', posts: 0, published: 0 },
     ]);
   });
 
   it('lists a slug missing from the term list under the slug itself', () => {
     const stats = computeStats([post({ categorySlug: 'lp', tagSlugs: ['new'] })], [], []);
     expect(stats.categories).toEqual([{ slug: 'lp', name: 'lp', posts: 1, photos: 1 }]);
-    expect(stats.tags).toEqual([{ slug: 'new', name: 'new', posts: 1 }]);
+    expect(stats.tags).toEqual([{ slug: 'new', name: 'new', posts: 1, published: 0 }]);
   });
 });
