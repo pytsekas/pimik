@@ -70,7 +70,9 @@ jobs:
   deploy:
     needs: check
     # Skipped until the repository variables from `terraform output github_variables` are set.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.GCP_WIF_PROVIDER != ''
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      vars.GCP_WIF_PROVIDER != '' && vars.GCP_API_SERVICE != '' && vars.GCP_WEB_SERVICE != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

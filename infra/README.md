@@ -106,58 +106,83 @@ Resources used to be called `vinyl-*`, `vinyl-rehab` and `experiment-stash-*`. G
 buckets, service accounts, services or repositories, so the new ones are created and the old ones
 deleted. Photos are copied; Firestore stores paths relative to `IMAGE_BASE_URL`, so no data
 changes. The two old buckets that hold data are only forgotten by Terraform (`state rm`) and stay
-as backups. The site is down for a few minutes between steps 4 and 6. Run from the repo root:
+as backups. Run everything from the repo root on an up-to-date `main` that contains this change.
 
-1. **State bucket.** Create `pimik-tfstate` and move both states into it:
+The site is down from step 3 until step 6 finishes, about 15 minutes. Don't run `infra/deploy.sh`
+or publish posts between steps 1 and 6.
+
+1. **State bucket.** Create `pimik-tfstate` and move both states into it. The `-reconfigure`
+   lines point each config at the old bucket first, so this also works from a fresh clone.
 
    ```sh
    terraform -chdir=infra/bootstrap init -reconfigure -backend-config=bucket=experiment-stash-tfstate
    terraform -chdir=infra/bootstrap state rm google_storage_bucket.tfstate
    terraform -chdir=infra/bootstrap apply
    terraform -chdir=infra/bootstrap init -migrate-state -force-copy
+   terraform -chdir=infra/main init -reconfigure -backend-config=bucket=experiment-stash-tfstate
    terraform -chdir=infra/main init -migrate-state -force-copy
+   terraform -chdir=infra/main state list | wc -l   # about 50, not 0
    ```
 
-2. **Photos bucket.** Forget the old one, create the new one, copy:
+   From now on the old `experiment-stash-tfstate` holds a stale copy. Never run Terraform from a
+   checkout older than this change.
+
+2. **Forget what can't be replaced in place.** The old photos bucket (`prevent_destroy`) stays as
+   a backup. The old Cloud Run services have deletion protection recorded in state, so Terraform
+   can't replace them; step 3 deletes them by hand instead.
 
    ```sh
-   terraform -chdir=infra/main state rm google_storage_bucket.photos
-   terraform -chdir=infra/main apply -target=google_storage_bucket.photos
-   gcloud storage rsync --recursive gs://experiment-stash-vinyl-rehab-photos gs://pimik-photos
+   terraform -chdir=infra/main state rm \
+     google_storage_bucket.photos \
+     google_cloud_run_v2_service.api google_cloud_run_v2_service.web \
+     google_cloud_run_v2_service_iam_member.web_public \
+     google_cloud_run_v2_service_iam_member.web_invokes_api
    ```
 
-3. **Check the copy.** Both lines must show the same count and size:
+3. **Delete the old services.** The site goes down here.
 
    ```sh
-   for b in experiment-stash-vinyl-rehab-photos pimik-photos; do
-     echo "$b $(gcloud storage ls -r "gs://$b/**" | wc -l) $(gcloud storage du -s "gs://$b")"
-   done
+   gcloud run services delete vinyl-web --region=europe-north1 --quiet
+   gcloud run services delete vinyl-api --region=europe-north1 --quiet
    ```
 
-4. **Everything else.** The plan should show about 34 to add, 1 to change and 22 to destroy, none
-   of them the old photos or state bucket. `pimik-api` and `pimik-web` start with the placeholder
-   image. If the destroy of `experiment-stash-vinyl-rehab-photos-uploads` fails because an
-   abandoned upload is still there, empty the bucket and apply again.
+4. **Apply.** The plan should show about 34 to add, 1 to change and 18 to destroy, and none of the
+   destroys should be the old photos or state bucket. It also does the following:
+   - Deletes the `vinyl-rehab` registry with its images. A rollback means rebuilding from git.
+   - Makes the old photos bucket private. Old absolute photo URLs stop working, and the backup
+     stays intact.
+   - Removes the `vinyl.rehab` and `www.vinyl.rehab` custom-domain registrations from the default
+     site. They're registered again on the `pimik` site when `custom_domain_enabled` is turned on.
+     Delete any TXT or ACME records you added for them at zone.ee.
+
+   `pimik-api` and `pimik-web` start with the placeholder image. A destroy of the old uploads or
+   build sources bucket fails if a leftover object is still in it. If that happens, empty the
+   bucket and apply again. Apply again too if Cloud Run reports a missing service account, because
+   new accounts take a moment to propagate.
 
    ```sh
    terraform -chdir=infra/main plan -out=main.tfplan
    terraform -chdir=infra/main apply main.tfplan
    ```
 
-5. **Copy again.** It picks up anything published between steps 2 and 4:
+5. **Copy the photos and check.** Both lines must show the same count and size:
 
    ```sh
    gcloud storage rsync --recursive gs://experiment-stash-vinyl-rehab-photos gs://pimik-photos
+   for b in experiment-stash-vinyl-rehab-photos pimik-photos; do
+     echo "$b $(gcloud storage ls -r "gs://$b/**" | wc -l) $(gcloud storage du -s "gs://$b")"
+   done
    ```
 
-6. **Deploy.** Set the GitHub variables (snippet above), then re-run the CI workflow on `main`, or
-   run `infra/deploy.sh`.
+6. **Deploy.** Set the GitHub variables (snippet above), then run `infra/deploy.sh`. The next push
+   to `main` deploys through CI; watch that first run.
 
 7. **OAuth client.** In Google Auth Platform → **Clients** → `vinyl-rehab-web`, add
    `https://pimik.web.app` to the authorized JavaScript origins.
 
-8. **Smoke test** https://pimik.web.app: the home page, a post with photos, `/feed`, admin sign-in
-   and a test upload (delete the test post afterwards).
+8. **Smoke test** https://pimik.web.app after a few minutes, because new IAM bindings take a
+   moment to propagate. Check the home page, a post with photos, `/feed`, admin sign-in and a test
+   upload, then delete the test post.
 
 9. **After a week**, delete the backups:
 
