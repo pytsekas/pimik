@@ -29,6 +29,32 @@ deploy.
   photos to the public `…-photos` bucket. Leftover uploads are deleted after a day.
 - `ADMIN_EMAILS` comes from `admin_emails` in `main/terraform.tfvars`.
 
+## Site address
+
+Until the domain moves, the site lives at https://experiment-stash.web.app (Firebase Hosting, which
+rewrites every request to `vinyl-web`). `SITE_URL` stays `https://vinyl.rehab`, so canonical links
+treat the Google URL as a copy of the WordPress site and its search ranking isn't split.
+
+Moving vinyl.rehab off WordPress later (DNS is at zone.ee; leave the MX and SPF records alone):
+
+1. Set `custom_domain_enabled = true` in `main/terraform.tfvars` and apply; the records to add are
+   in `terraform -chdir=infra/main output hosting_dns_records`.
+2. Add the `hosting-site=…` TXT record at zone.ee and lower the A/CNAME TTLs to 300 s.
+3. Run `infra/import.sh` one last time, then point the A record at the Hosting IP and `www` at
+   `experiment-stash.web.app`. Firebase issues the certificate within about an hour.
+4. Rollback is putting the old A record back; keep the WordPress hosting and an export until the
+   new site has run for a while.
+
+## Importing WordPress into production
+
+```sh
+infra/import.sh
+```
+
+Runs the same importer as `pnpm import` (see the root README) against the production Firestore and
+photo bucket, as your gcloud application-default credentials. It starts from an empty environment
+with `NODE_ENV=production`, so emulator settings from `.env` or the shell can't leak in.
+
 ## Manual steps (Google offers no API for them)
 
 ### Google sign-in OAuth client

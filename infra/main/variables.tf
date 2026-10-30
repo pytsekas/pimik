@@ -15,6 +15,18 @@ variable "admin_emails" {
   type        = list(string)
 }
 
+variable "domain" {
+  description = "The site's domain, served through Firebase Hosting"
+  type        = string
+  default     = "vinyl.rehab"
+}
+
+variable "custom_domain_enabled" {
+  description = "Register the domain with Firebase Hosting; turn on only when DNS moves from WordPress"
+  type        = bool
+  default     = false
+}
+
 variable "site_url" {
   description = "Public site URL for feed, sitemap and canonical links (SITE_URL)"
   type        = string
@@ -24,7 +36,7 @@ variable "site_url" {
 variable "upload_origins" {
   description = "Browser origins besides the web service's run.app URL that may PUT uploads"
   type        = list(string)
-  default     = ["https://vinyl.rehab"]
+  default     = ["https://vinyl.rehab", "https://experiment-stash.web.app"]
 }
 
 variable "auth_domains" {
