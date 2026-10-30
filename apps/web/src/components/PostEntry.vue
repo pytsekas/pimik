@@ -21,37 +21,47 @@ const props = withDefaults(
 );
 
 // A thumbnail click fades the big photo out, swaps it while invisible and fades it back in once
-// the new photo has loaded, so a half-loaded photo never shows.
+// the new photo has loaded, so a half-loaded photo never shows. Keep in step with the CSS transition.
 const FADE_MS = 150;
 
 const selected = ref(0);
 const shown = ref(0);
+// Whether the photo in `shown` has finished loading; the server-rendered one counts as loaded.
+const loaded = ref(true);
 const fading = ref(false);
 const lightboxOpen = ref(false);
 let swapTimer: ReturnType<typeof setTimeout> | undefined;
 
 const current = computed(() => props.post.photos[shown.value]);
 
+const show = (index: number) => {
+  if (shown.value === index) return;
+  shown.value = index;
+  loaded.value = false;
+};
+
 watch(selected, (index) => {
   clearTimeout(swapTimer);
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-    shown.value = index;
+    show(index);
     fading.value = false;
     return;
   }
   fading.value = true;
   swapTimer = setTimeout(() => {
-    // Back on the photo already showing: no new load event will come.
-    if (shown.value === index) fading.value = false;
-    shown.value = index;
+    show(index);
+    // Back on the photo already showing: its load event may have come already.
+    if (loaded.value) fading.value = false;
   }, FADE_MS);
 });
 
 const photoReady = () => {
+  loaded.value = true;
   if (shown.value === selected.value) fading.value = false;
 };
 
 onBeforeUnmount(() => clearTimeout(swapTimer));
+
 const postPath = computed(
   () => `/${encodeURIComponent(props.post.categorySlug)}/${encodeURIComponent(props.post.slug)}/`,
 );
@@ -145,7 +155,7 @@ const srcset = computed(() => {
   width: 100%;
   height: auto;
   cursor: zoom-in;
-  transition: opacity 150ms ease;
+  transition: opacity 150ms ease; /* FADE_MS */
 }
 
 .hero.fading {
