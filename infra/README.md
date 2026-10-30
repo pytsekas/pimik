@@ -108,6 +108,13 @@ deleted. Photos are copied; Firestore stores paths relative to `IMAGE_BASE_URL`,
 changes. The two old buckets that hold data are only forgotten by Terraform (`state rm`) and stay
 as backups. Run everything from the repo root on an up-to-date `main` that contains this change.
 
+**Done on 2026-10-30, steps 1 to 6 and 8.** Downtime was 16:22 to 16:30 UTC. The 1,149 photos were
+copied with identical counts and sizes. Steps 7 and 9 are still open. This section can go once
+step 9 is done.
+
+A saved `-backend-config` survives the next `init`, so `-migrate-state` must name the new bucket
+explicitly, as below. Without it Terraform sees no change and copies nothing.
+
 The site is down from step 3 until step 6 finishes, about 15 minutes. Don't run `infra/deploy.sh`
 or publish posts between steps 1 and 6.
 
@@ -118,9 +125,9 @@ or publish posts between steps 1 and 6.
    terraform -chdir=infra/bootstrap init -reconfigure -backend-config=bucket=experiment-stash-tfstate
    terraform -chdir=infra/bootstrap state rm google_storage_bucket.tfstate
    terraform -chdir=infra/bootstrap apply
-   terraform -chdir=infra/bootstrap init -migrate-state -force-copy
+   terraform -chdir=infra/bootstrap init -migrate-state -force-copy -backend-config=bucket=pimik-tfstate
    terraform -chdir=infra/main init -reconfigure -backend-config=bucket=experiment-stash-tfstate
-   terraform -chdir=infra/main init -migrate-state -force-copy
+   terraform -chdir=infra/main init -migrate-state -force-copy -backend-config=bucket=pimik-tfstate
    terraform -chdir=infra/main state list | wc -l   # about 50, not 0
    ```
 
