@@ -1,0 +1,136 @@
+# Every pull request and push: lint, types, unit tests, web build and Playwright e2e.
+# Pushes to main then build both images and roll them out to Cloud Run (see infra/README.md).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The Firestore emulator is a Java program.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: firebase-emulators-
+
+      - run: pnpm install --frozen-lockfile
+
+      # Same image and flags as docker-compose.yml, minus the host volume.
+      - name: Start the Cloud Storage emulator
+        run: >-
+          docker run --detach --name gcs --publish 4443:4443 fsouza/fake-gcs-server:1.52
+          -scheme http -port 4443 -public-host localhost:4443
+
+      - run: pnpm check
+
+      - run: pnpm test
+
+      - run: pnpm --filter @vinyl/web build
+
+      - run: pnpm e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  deploy:
+    needs: check
+    # Skipped until the repository variables from `terraform output github_variables` are set.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.GCP_WIF_PROVIDER != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    # Deploys queue instead of overlapping or cancelling each other.
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      REPO: ${{ vars.GCP_IMAGE_REPO }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Image tag
+        id: tag
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          push: true
+          provenance: false
+          tags: ${{ env.REPO }}/api:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          push: true
+          provenance: false
+          tags: ${{ env.REPO }}/web:${{ steps.tag.outputs.tag }}
+          build-args: |
+            VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+            VITE_FIREBASE_PROJECT_ID=${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      # The api first, so the web revision never calls an older api than it was built with.
+      # --to-latest undoes a manual rollback, which pins traffic to an older revision.
+      - name: Deploy to Cloud Run
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          for app in api web; do
+            gcloud run services update "vinyl-$app" --region="$REGION" --image="$REPO/$app:$TAG" --quiet
+            gcloud run services update-traffic "vinyl-$app" --region="$REGION" --to-latest --quiet
+          done
