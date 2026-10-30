@@ -58,7 +58,7 @@ output "hosting_dns_records" {
 
 output "site_url" {
   description = "Where the site is served until the custom domain is enabled"
-  value       = "https://${var.project_id}.web.app"
+  value       = google_firebase_hosting_site.main.default_url
 }
 
 output "web_url" {
@@ -78,5 +78,22 @@ output "deploy" {
     build_service_acct  = google_service_account.build.id
     build_source_bucket = google_storage_bucket.build_sources.name
     region              = var.region
+    api_service         = google_cloud_run_v2_service.api.name
+    web_service         = google_cloud_run_v2_service.web.name
+  }
+}
+
+output "github_variables" {
+  description = "Repository variables the GitHub Actions deploy job reads (see infra/README.md)"
+  value = {
+    GCP_WIF_PROVIDER          = google_iam_workload_identity_pool_provider.github.name
+    GCP_DEPLOY_SA             = google_service_account.deploy.email
+    GCP_REGION                = var.region
+    GCP_IMAGE_REPO            = local.image_repo
+    GCP_API_SERVICE           = google_cloud_run_v2_service.api.name
+    GCP_WEB_SERVICE           = google_cloud_run_v2_service.web.name
+    VITE_FIREBASE_API_KEY     = data.google_firebase_web_app_config.admin.api_key
+    VITE_FIREBASE_AUTH_DOMAIN = data.google_firebase_web_app_config.admin.auth_domain
+    VITE_FIREBASE_PROJECT_ID  = var.project_id
   }
 }

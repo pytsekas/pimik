@@ -23,7 +23,7 @@ resource "google_project_service" "storage" {
 }
 
 resource "google_storage_bucket" "tfstate" {
-  name                        = "${var.project_id}-tfstate"
+  name                        = "${var.name_prefix}-tfstate"
   location                    = var.region
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"

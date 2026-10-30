@@ -1,4 +1,4 @@
-# Terraform owns the services; infra/deploy.sh owns which image runs (hence ignore_changes).
+# Terraform owns the services; CI or infra/deploy.sh owns which image runs (hence ignore_changes).
 # The first apply starts Google's placeholder image until the first deploy.
 
 locals {
@@ -6,8 +6,10 @@ locals {
 }
 
 resource "google_cloud_run_v2_service" "api" {
-  name     = "vinyl-api"
+  name     = "${var.name_prefix}-api"
   location = var.region
+  # Stateless; Terraform may replace it (e.g. on a rename). Images are rebuilt from git.
+  deletion_protection = false
   # Public ingress, but only principals with run.invoker (the web service account) get through.
   ingress = "INGRESS_TRAFFIC_ALL"
 
@@ -63,9 +65,10 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 resource "google_cloud_run_v2_service" "web" {
-  name     = "vinyl-web"
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_ALL"
+  name                = "${var.name_prefix}-web"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_ALL"
 
   template {
     service_account = google_service_account.web.email

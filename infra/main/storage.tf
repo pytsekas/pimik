@@ -1,5 +1,5 @@
 resource "google_storage_bucket" "photos" {
-  name                        = "${var.project_id}-vinyl-rehab-photos"
+  name                        = "${var.name_prefix}-photos"
   location                    = var.region
   uniform_bucket_level_access = true
 
@@ -23,7 +23,7 @@ resource "google_storage_bucket_iam_member" "photos_public_read" {
 locals {
   # A plain string, not a reference: the api needs the name, and the bucket's CORS needs the web
   # URL, which needs the api URL.
-  upload_bucket = "${var.project_id}-vinyl-rehab-photos-uploads"
+  upload_bucket = "${var.name_prefix}-photos-uploads"
 }
 
 resource "google_storage_bucket" "uploads" {
@@ -53,7 +53,7 @@ resource "google_storage_bucket" "uploads" {
 
 # Source archives that `gcloud builds submit` uploads (see infra/deploy.sh).
 resource "google_storage_bucket" "build_sources" {
-  name                        = "${var.project_id}-build-sources"
+  name                        = "${var.name_prefix}-build-sources"
   location                    = var.region
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"

@@ -9,3 +9,9 @@ variable "region" {
   type        = string
   default     = "europe-north1"
 }
+
+variable "name_prefix" {
+  description = "Every resource name starts with this (the repo name); bucket names are global"
+  type        = string
+  default     = "pimik"
+}

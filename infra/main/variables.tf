@@ -10,6 +10,12 @@ variable "region" {
   default     = "europe-north1"
 }
 
+variable "name_prefix" {
+  description = "Every resource name starts with this (the repo name); bucket names are global"
+  type        = string
+  default     = "pimik"
+}
+
 variable "admin_emails" {
   description = "Google accounts allowed into the admin (ADMIN_EMAILS)"
   type        = list(string)
@@ -36,7 +42,7 @@ variable "site_url" {
 variable "upload_origins" {
   description = "Browser origins besides the web service's run.app URL that may PUT uploads"
   type        = list(string)
-  default     = ["https://vinyl.rehab", "https://experiment-stash.web.app"]
+  default     = ["https://vinyl.rehab", "https://pimik.web.app", "https://experiment-stash.web.app"]
 }
 
 variable "auth_domains" {
@@ -45,6 +51,19 @@ variable "auth_domains" {
   default = [
     "experiment-stash.firebaseapp.com",
     "experiment-stash.web.app",
+    "pimik.web.app",
     "vinyl.rehab",
   ]
+}
+
+variable "github_repository" {
+  description = "GitHub repository (owner/name) whose main branch deploys"
+  type        = string
+  default     = "pytsekas/pimik"
+}
+
+variable "github_repository_id" {
+  description = "Numeric id of github_repository (gh api repos/OWNER/NAME --jq .id); survives renames"
+  type        = string
+  default     = "1422126308"
 }

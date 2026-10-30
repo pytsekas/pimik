@@ -1,5 +1,5 @@
 resource "google_artifact_registry_repository" "images" {
-  repository_id = "vinyl-rehab"
+  repository_id = var.name_prefix
   location      = var.region
   format        = "DOCKER"
 
